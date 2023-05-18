@@ -1,12 +1,17 @@
 // State Class, Defines DFA state with:
-//  - Internal ID
+//  - Internal ID (For Printing and Debugging Purposes)
 //  - Name
 //  - Whether State is Accepting
 class State {
-    constructor(id, name, accepting) {
+    constructor(id, name, accepting, x=0, y=0) {
+        // DFA related Values
         this.id = id;
         this.name = name;
         this.accepting = accepting;
+
+        // Rendering related Values
+        this.x = x;
+        this.y = y;
     }
 }
 
@@ -19,136 +24,121 @@ class Arrow {
 }
 
 // DFA Class, Defines DFA with:
-//  - Object of id:state mappings
+//  - Set of States
 //  - Next id to give a state upon creation
-//  = Object representing transition function
 //  - Starting State 
 //  - Arrows in Transition Function
 class DFA {
     constructor() {
-        this.states = {};
-        this.stateId = 0;
-        this.startingState = -1;
+        this.states = new Set();
+        this.nextId = 0;
+        this.startingState = undefined;
 
-        this.arrows = {};
+        this.arrows = new WeakMap(); // convert to weakmap
     }
 
-    // Create new state with Unique id
-    createState(name, accepting) {
-        const stateId = this.stateId;
-
-        let state = new State(stateId, name, accepting);
-        this.states[stateId] = state;
-        this.arrows[stateId] = {};
-
-        this.stateId += 1;
+    // Create new state
+    createState(name, accepting, x=0, y=0) {
+        let state = new State(this.nextId, name, accepting, x, y);
+        this.states.add(state);
+        this.arrows.set(state, new WeakMap());
+        this.nextId += 1;
 
         return state;
     }
 
-    // Get State Using ID, if one exists with specified ID
-    getState(id) {
-        return this.states[id];
-    }
-
-    // Set DFA Starting State, if state exists with specified ID
-    setStartingState(id) {
-        if (id in this.states) {
-            this.startingState = id;
+    // Set DFA Starting State, if state exists in DFA
+    setStartingState(state) {
+        if (this.states.has(state)) {
+            this.startingState = state;
         }
     }
 
     // Turns Accepting State into Rejecting State, and vice versa
-    toggleStateAccepting(id) {
-        const state = this.getState(id);
+    toggleStateAccepting(state) {
         state.accepting = !state.accepting;
         return state.accepting;
     }
 
-    // Deletes state from DFA
-    deleteState(id) {
-        delete this.states[id];
-        delete this.arrows[id];
-        for (const fromId in this.arrows) {
-            delete this.arrows[fromId][id];
+    // Deletes state and all arrows incident on it from DFA
+    deleteState(state) {
+        this.states.delete(state);
+        this.arrows.delete(state);
+        for (const from in this.states) {
+            this.arrows.get(from).delete(state);
         }
-        if (this.startingState === id) {
-            this.startingState = -1;
+        if (this.startingState === state) {
+            this.startingState = undefined;
         }
     }
 
-    // Creates Transition from fromId to toId
-    createTransition(fromId, toId) {
-        const fromState = this.getState(fromId);
-        const toState = this.getState(toId);
-        if (fromState === undefined || toState === undefined) {
+    // Creates Transition from fromState to toState with no characters
+    createTransition(fromState, toState) {
+        if (!(this.states.has(fromState) && this.states.has(toState))) {
             return;
         }
-        if (this.arrows[fromId][toId] === undefined) {
-            this.arrows[fromId][toId] = new Arrow();
+        if (!this.arrows.get(fromState).has(toState)) {
+            this.arrows.get(fromState).set(toState, new Arrow());
         }
     }
 
-    // Gets ID of state using Transition from fromId with character
-    getTransition(fromId, character) {
-        const arrowsFrom = this.arrows[fromId];
-        if (arrowsFrom === undefined) {
-            return -1;
+    // Gets Arrow from fromState to toState, if it exists
+    getTransition(fromState, toState) {
+        if (this.arrows.get(fromState).has(toState)) {
+            return this.arrows.get(fromState).get(toState);
         }
-        for (const toId in arrowsFrom) {
-            if (arrowsFrom[toId].chars.includes(character)) {
-                return parseInt(toId);
-            }
-        }
-        return -1;
+        return undefined;
     }
 
     // Updates Characters applicable to given transition
-    updateTransition(fromId, toId, characters) {
-        if (this.states[fromId] === undefined) {
+    updateTransition(fromState, toState, characters) {
+        if (!(this.states.has(fromState) && this.states.has(toState))) {
             return;
         }
-        if (this.states[toId] === undefined) {
-            return;
-        }
-        this.arrows[fromId][toId].chars = characters;
+        this.arrows.get(fromState).get(toState).chars = characters;
         return;
     }
 
-    deleteTransition(fromId, toId) {
-        if (this.states[fromId] === undefined) {
+    // Deletes Transition from fromState to toState, if one exists
+    deleteTransition(fromState, toState) {
+        if (!(this.states.has(fromState) && this.states.has(toState))) {
             return;
         }
-        if (this.states[toId] === undefined) {
-            return;
+        this.arrows.get(fromState).delete(toState);
+    }
+
+    // Given current state and next input character,
+    // Returns next state, or undefined if no applicable transition defined
+    step(fromState, character) {
+        if (!this.states.has(fromState)) {
+            return undefined;
         }
-        delete this.arrows[fromId][toId];
+        // CONVERT FROM HERE DOWN TO WEAKMAP!!!
+        const arrowsFrom = this.arrows.get(fromState);
+        for (const toState in this.states) {
+            const arrow = arrowsFrom.get(toState);
+            if (arrow !== undefined && arrow.chars.includes(character)) {
+                return toState
+            }
+        }
+        return undefined;
     }
 
-    // Given id of currentState and next input character,
-    // Returns id of nextState, or -1 if no applicable transition defined
-    step(fromId, character) {
-        return this.getTransition(fromId, character);
-    }
-
-    // Given DFA input, returns ending stateId and whether DFA accepts
+    // Given input to the DFA, returns ending state and whether DFA accepts
     evaluate(input) {
         let states = [this.startingState];
         for (const character of input) {
-            if (states[states.length-1] === -1){
+            if (states[states.length-1] === undefined){
                 // Reached Invalid State
-                return {
-                    states: states,
-                    accepts: false,
-                };
+                break;
             }
             // Take Step Through DFA
             states.push(this.step(states[states.length-1], character));
         }
 
         let accepting;
-        if (states[states.length-1] !== -1) {
-            accepting = this.getState(states[states.length-1]).accepting;
+        if (states[states.length-1] !== undefined) {
+            accepting = states[states.length-1].accepting;
         }
         else{
             accepting = false;
@@ -160,21 +150,29 @@ class DFA {
         }
     }
 
+    // Prints String Representation of DFA (For Debugging Purposes)
     toString() {
-        let states = Object.keys(this.states);
-        let stateString = states.join(",");
+        let stateString = "\n";
+        for(const state of this.states) {
+            stateString += `\t${state.id} (\"${state.name}\")\n`;
+        }
 
-        let transitionString = "";
-        for(const fromId in this.arrows) {
-            for (const toId in this.arrows[fromId]) {
-                const chars = this.arrows[fromId][toId].chars.toString();
-                transitionString += `\t${fromId} --[${chars}]-> ${toId}\n`;
+        let startingStateString = 
+            (this.startingState === undefined ? "None" : this.startingState.id);
+
+        let transString = "\n";
+        for (const from of this.states) {
+            const arrowsFrom = this.arrows.get(from);
+            for (const to of this.states) {
+                if (arrowsFrom.has(to)) {
+                    const chars = arrowsFrom.get(to).chars.toString();
+                    transString += `\t${from.id} --[${chars}]-> ${to.id}\n`;
+                }
             }
         }
 
         return `States: ${stateString}\n` 
-             + `Starting State: ${this.startingState}\n`
-             + `Transitions:\n`
-             + `${transitionString}`;
+             + `Starting State: ${startingStateString}\n`
+             + `Transitions: ${transString}`;
     }
 }
