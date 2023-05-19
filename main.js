@@ -16,7 +16,12 @@ const vars = {
     floatingArrow: undefined,  // Object
     
     // Starting State Arrow info
-    startingArrow: undefined   // Object
+    startingArrow: undefined,  // Object
+
+    // Sandbox Drawing Constants
+    DEFAULT_COLOR: "black",
+    SELECTED_COLOR: "blue",
+    STATE_RADIUS: 40,
 };
 
 window.onload = function(){
@@ -30,13 +35,12 @@ window.onload = function(){
 
     // Declare Sandbox Interaction Events
     vars.sandbox.addEventListener("mousedown", sandboxOnMouseDown);
-    vars.sandbox.addEventListener("mouseup", sandboxOnMouseUp);
     vars.sandbox.addEventListener("mousemove", sandboxOnMousemove);
     vars.sandbox.addEventListener("mouseleave", sandboxOnMouseleave);
     vars.sandbox.addEventListener("click", sandboxOnClick);
     vars.sandbox.addEventListener("dblclick", sandboxOnDblClick);
     window.addEventListener("keydown", sandboxOnKeyDown);
-    vars.sandbox.addEventListener("scroll", sandboxOnScroll);
+    window.addEventListener("scroll", sandboxOnScroll);
 }
 
 // Resize Sandbox to window Width and Height
@@ -45,6 +49,13 @@ function sandboxResize() {
     sandbox.width = window.innerWidth;
     sandbox.height = window.innerHeight;
     sandboxDraw();
+}
+
+// Helper Function to sandboxDraw, moves from point at angle for dist length
+function forward(x, y, angle, dist) {
+    const newX = x + Math.cos(angle) * dist;
+    const newY = y + Math.sin(angle) * dist;
+    return [newX, newY];
 }
 
 // Helper Function to sandboxDraw, draws arrow (fromX, fromY) -> (toX, toY)
@@ -57,13 +68,11 @@ function drawArrow(ctx, fromX, fromY, toX, toY) {
     ctx.stroke();
     // Draw Arrow Head
     const HEAD_ANGLE = Math.PI/4;
-    const HEAD_HEIGHT = 25 * 0.5;
-    const backX = toX - Math.cos(angle) * HEAD_HEIGHT;
-    const backY = toY - Math.sin(angle) * HEAD_HEIGHT;
-    const leftX = backX + Math.cos(angle+Math.PI/2) * (HEAD_HEIGHT * Math.tan(HEAD_ANGLE/2)); // 25 SHOULD NOT BE HARDCODED
-    const leftY = backY + Math.sin(angle+Math.PI/2) * (HEAD_HEIGHT * Math.tan(HEAD_ANGLE/2)); // 25 SHOULD NOT BE HARDCODED
-    const rightX = backX + Math.cos(angle-Math.PI/2) * (HEAD_HEIGHT * Math.tan(HEAD_ANGLE/2)); // 25 SHOULD NOT BE HARDCODED
-    const rightY = backY + Math.sin(angle-Math.PI/2) * (HEAD_HEIGHT * Math.tan(HEAD_ANGLE/2)); // 25 SHOULD NOT BE HARDCODED
+    const HEAD_HEIGHT = vars.STATE_RADIUS * 0.5;
+    const HEAD_WIDTH = HEAD_HEIGHT * Math.tan(HEAD_ANGLE/2)
+    const [backX, backY] = forward(toX, toY, angle, -HEAD_HEIGHT);
+    const [leftX, leftY] = forward(backX, backY, angle+Math.PI/2, HEAD_WIDTH);
+    const [rightX, rightY] = forward(backX, backY, angle-Math.PI/2, HEAD_WIDTH);
     ctx.beginPath();
     ctx.moveTo(toX, toY);
     ctx.lineTo(leftX, leftY);
@@ -81,28 +90,28 @@ function sandboxDraw() {
     // Draw States in DFA
     ctx.textAlign = "center";
     ctx.textBaseline = 'middle';
-    ctx.font = "15px arial";
+    ctx.font = `${vars.STATE_RADIUS * 0.6}px arial`;
     vars.DFA.states.forEach((state) => {
         // Draw Red if Selected, else Black, with White fill
         if (vars.selectedState === state) {
-            ctx.strokeStyle = "red";
-            ctx.fillStyle = "red";
+            ctx.strokeStyle = vars.SELECTED_COLOR;
+            ctx.fillStyle = vars.SELECTED_COLOR;
         }
         else {
-            ctx.strokeStyle = "black";
-            ctx.fillStyle = "black";
+            ctx.strokeStyle = vars.DEFAULT_COLOR;
+            ctx.fillStyle = vars.DEFAULT_COLOR;
         }
         // Draw Circles of state
         ctx.beginPath();
-        ctx.ellipse(state.x, state.y, 25, 25, 0, 0, 2*Math.PI); // 25 SHOULD NOT BE HARDCODED
+        ctx.ellipse(state.x, state.y, vars.STATE_RADIUS, vars.STATE_RADIUS, 0, 0, 2*Math.PI);
         ctx.stroke();
         if (state.accepting) {
             ctx.beginPath();
-            ctx.ellipse(state.x, state.y, 20, 20, 0, 0, 2*Math.PI); // 20 SHOULD NOT BE HARDCODED
+            ctx.ellipse(state.x, state.y, 0.8*vars.STATE_RADIUS, 0.8*vars.STATE_RADIUS, 0, 0, 2*Math.PI);
             ctx.stroke();
         }
         // Draw state name
-        ctx.fillText(state.name, state.x, state.y); // 25 SHOULD NOT BE HARDCODED
+        ctx.fillText(state.name, state.x, state.y);
     });
 
     // Draw Arrows in DFA
@@ -112,17 +121,63 @@ function sandboxDraw() {
                 continue;
             }
             // Draw Arrow from fromState to toState
-            ctx.strokeStyle = "black";
-            ctx.fillStyle = "black";
+            const arrow = vars.DFA.arrows.get(fromState).get(toState);
+            if (vars.selectedArrow === arrow) {
+                ctx.strokeStyle = vars.SELECTED_COLOR;
+                ctx.fillStyle = vars.SELECTED_COLOR;
+            }
+            else {
+                ctx.strokeStyle = vars.DEFAULT_COLOR;
+                ctx.fillStyle = vars.DEFAULT_COLOR;
+            }
 
             const [dx, dy] = [toState.x-fromState.x, toState.y-fromState.y];
             const angle = Math.atan2(dy,dx);
-            const fromX = fromState.x + Math.cos(angle) * 25; // 25 SHOULD NOT BE HARDCODED
-            const fromY = fromState.y + Math.sin(angle) * 25; // 25 SHOULD NOT BE HARDCODED
-            const toX = toState.x - Math.cos(angle) * 25; // 25 SHOULD NOT BE HARDCODED
-            const toY = toState.y - Math.sin(angle) * 25; // 25 SHOULD NOT BE HARDCODED
-            drawArrow(ctx, fromX, fromY, toX, toY, angle);
+            const [fromX, fromY] = forward(fromState.x, fromState.y, angle, vars.STATE_RADIUS);
+            const [toX, toY] = forward(toState.x, toState.y, angle, -vars.STATE_RADIUS);
+            drawArrow(ctx, fromX, fromY, toX, toY);
         }
+    }
+
+    // Draw Floating Arrow, if it exists
+    if (vars.floatingArrow !== undefined) {
+        ctx.strokeStyle = vars.SELECTED_COLOR;
+        ctx.fillStyle = vars.SELECTED_COLOR;
+        const farrow = vars.floatingArrow;
+        let [fromX, fromY] = [farrow.fromX, farrow.fromY];
+        let [toX, toY] = [farrow.toX, farrow.toY];
+        const fromState = getClickedState(farrow.fromX, farrow.fromY);
+        const toState = getClickedState(farrow.toX, farrow.toY);
+
+        // Compute Arrow Angle
+        if (toState !== undefined) {
+            // (toX, toY) is in a state, snap and move head backward
+            [toX, toY] = [toState.x, toState.y]
+        }
+        angle = Math.atan2(toY-fromY, toX-fromX);
+
+        // Given Arrow Angle, Compute Arrow base and head
+        if (fromState !== undefined) {
+            // (fromX, fromY) is CENTER of a state, move base forward
+            [fromX, fromY] = forward(fromX, fromY, angle, vars.STATE_RADIUS);
+        }
+        if (toState !== undefined) {
+            [toX, toY] = forward(toX, toY, angle, -vars.STATE_RADIUS);
+        }
+        
+        drawArrow(ctx, fromX, fromY, toX, toY);
+    }
+
+    // Draw Stating Arrow, if it exists
+    if (vars.startingArrow !== undefined) {
+        ctx.strokeStyle = vars.DEFAULT_COLOR;
+        ctx.fillStyle = vars.DEFAULT_COLOR;
+        const sarrow = vars.startingArrow;
+        let [fromX, fromY] = [sarrow.fromX, sarrow.fromY];
+        let [toX, toY] = [sarrow.toState.x, sarrow.toState.y];
+        angle = Math.atan2(toY-fromY, toX-fromX);
+        [toX, toY] = forward(toX, toY, angle, -vars.STATE_RADIUS);
+        drawArrow(ctx, fromX, fromY, toX, toY);
     }
 
     /* Draw Toolbar to Run DFA 
@@ -140,7 +195,7 @@ function distance(x1, y1, x2, y2) {
 // Returns State at (x,y) coordinate on Canvas, or undefined if none exists
 function getClickedState(x, y) {
     for (const state of vars.DFA.states) {
-        if (distance(x, y, state.x, state.y) < 25) { // 25 SHOULD NOT BE HARDCODED
+        if (distance(x, y, state.x, state.y) < vars.STATE_RADIUS) {
             return state;
         }
     }
@@ -148,36 +203,55 @@ function getClickedState(x, y) {
 }
 
 // Defines what Sandbox Should do on MouseClick:
-// - If On a state, Select the state
-//    - If Shift was Pressed Down, start arrow from the state
+// - If Shift was Pressed Down, start arrow from the location
+// - Else If On a state, Select the state
 function sandboxOnMouseDown(event) {
     let clickedState = getClickedState(event.x, event.y);
-    if (clickedState !== undefined) {
-        if (event.shiftKey) {
-            // Create Selected Arrow starting at clickedState
+    if (event.shiftKey) {
+        let [fromX, fromY] = [event.x, event.y];
+        if (clickedState !== undefined) {
+            // Arrow starts from state, snap base of arrow to state
+            fromX = clickedState.x;
+            fromY = clickedState.y;
         }
-        else{
-            vars.selectedState = clickedState;
-            vars.dragging = true;    
+        // Start floating arrow and stop any other selection
+        vars.floatingArrow = {
+            fromX: fromX,
+            fromY: fromY, 
+            toX: event.x,
+            toY: event.y
         }
+        vars.selectedState = undefined;
+        vars.selectedArrow = undefined;
+    }
+    else if (clickedState !== undefined) {
+        // Start Selecting State, Unselect anything Else
+        vars.selectedState = clickedState;
+        vars.dragging = true;
+        vars.selectedArrow = undefined;
     }
     sandboxDraw();
 }
 
-// Defines what Sandbox Should do on MouseUp
-function sandboxOnMouseUp(event) {
-    vars.dragging = false;
-}
-
 // Defines what Sandbox Should do on Mousemove:
-// - If dragging, update dragged element position
+// - If dragging state, update dragged element position
+// - If moving arrow, update arrowhead position
 function sandboxOnMousemove(event){
-    if (vars.dragging) {
+    if (vars.floatingArrow !== undefined) {
+        vars.floatingArrow.toX = event.x;
+        vars.floatingArrow.toY = event.y;
+    }
+    else if (vars.dragging) {
         let state = vars.selectedState;
         state.x += event.movementX;
         state.y += event.movementY;
-        sandboxDraw();    
+        if (vars.DFA.startingState === state) {
+            // Move Starting Arrow with Starting State
+            vars.startingArrow.fromX += event.movementX;
+            vars.startingArrow.fromY += event.movementY;
+        }
     }
+    sandboxDraw();
 }
 
 // Defines what Sandbox Should do on Mouseleave:
@@ -188,14 +262,39 @@ function sandboxOnMouseleave(event) {
     sandboxDraw();
 }
 
+// Defines what Sandbox Should do on Click:
+// - Stop Dragging
+// - If was creating an arrow: resolve arrow
 // - If Didn't Click on a State, Create a New State at cursor
 function sandboxOnClick(event) {
+    vars.dragging = false;
     let clickedState = getClickedState(event.x, event.y);
-    if (clickedState === undefined) {
+    if (vars.floatingArrow !== undefined) {
+        // Stopped dragging arrow, Determine if Arrow should be added and how
+        const farrow = vars.floatingArrow;
+        const fromState = getClickedState(farrow.fromX, farrow.fromY);
+        const toState = getClickedState(farrow.toX, farrow.toY);
+        if (toState !== undefined) {
+            if (fromState !== undefined) {
+                // State to State, should add arrow
+                vars.DFA.createTransition(fromState, toState);
+                vars.selectedArrow = vars.DFA.getTransition(fromState, toState);
+            }
+            else {
+                // Point to State, should set starting state
+                vars.DFA.setStartingState(toState);
+                vars.startingArrow = {
+                    fromX: vars.floatingArrow.fromX,
+                    fromY: vars.floatingArrow.fromY,
+                    toState: toState,
+                };
+            }
+        }
+        vars.floatingArrow = undefined;
+    }
+    else if (clickedState === undefined) {
         let newState = vars.DFA.createState("", false, event.x, event.y);
-        if(vars.selectedState) {                                    // DEBUG STUFF
-            vars.DFA.createTransition(vars.selectedState, newState) // DEBUG STUFF
-        }                                                           // DEBUG STUFF
+        vars.selectedArrow = undefined;
         vars.selectedState = newState;
     }
     console.log(vars.DFA.toString());
@@ -212,17 +311,32 @@ function sandboxOnDblClick(event) {
     }
 }
 
+function isDFAChar(s) {
+    return new RegExp(/^[ -~]$/).test(s)
+}
+
 // Defines what Sandbox Should do on KeyDown:
 // - If Delete, delete element selected
 // - If Escape, Unselected element
 function sandboxOnKeyDown(event) {
-    if (vars.selectedState !== undefined) {
-        // TODO: CHANGE FOR IF ARROW SELECTED
+    if (event.key === "Escape") {
+        vars.selectedState = undefined;
+        vars.selectedArrow = undefined;
+    }
+    else if (vars.selectedState !== undefined) {
         if (event.key === "Backspace" || event.key === "Delete") {
             vars.selectedState.name = vars.selectedState.name.slice(0, -1);
         }
-        else if (new RegExp(/^[0-9a-zA-Z ]$/).test(event.key)){
+        else if (isDFAChar(event.key)){
             vars.selectedState.name += event.key;
+        }
+    }
+    else if (vars.selectedArrow !== undefined) {
+        if (event.key === "Backspace" || event.key === "Delete") {
+            vars.selectedArrow.chars.pop();
+        }
+        else if (isDFAChar(event.key)){
+            vars.selectedArrow.chars.push(event.key);
         }
     }
     sandboxDraw();
