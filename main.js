@@ -1,3 +1,4 @@
+// Global Variables
 const vars = {
     sandbox: undefined,
     sandboxAttributes: { // To eventually allow zooming and stuff
@@ -41,6 +42,7 @@ window.onload = function(){
     vars.sandbox.addEventListener("dblclick", sandboxOnDblClick);
     window.addEventListener("keydown", sandboxOnKeyDown);
     window.addEventListener("scroll", sandboxOnScroll);
+    window.addEventListener("mousewheel", sandboxOnScroll);
 }
 
 // Resize Sandbox to window Width and Height
@@ -188,8 +190,19 @@ function sandboxDraw() {
     ctx.fill();*/
 }
 
+// Returns Euclidean distance between (x1, y1) and (x2, y2)
 function distance(x1, y1, x2, y2) {
     return ((x2-x1)**2 + (y2-y1)**2)**0.5;
+}
+
+// Returns the minimum distance from point (xp, yp) to the line
+// segment between (x1, y1) and (x2, y2)
+function pointToLineDistance(xp, yp, x1, y1, x2, y2) {
+    let dxy = distance(x1, y1, x2, y2);
+    if (dxy === 0) return distance(xp, yp, x1, y1);
+    let t = ((xp-x1)*(x2-x1) + (yp-y1)*(y2-y1)) / dxy**2;
+    t = Math.max(0, Math.min(t, 1)); // t is projection onto line segment
+    return distance(xp, yp, x1 + t*(x2-x1), y1 + t*(y2-y1));
 }
 
 // Returns State at (x,y) coordinate on Canvas, or undefined if none exists
@@ -202,11 +215,30 @@ function getClickedState(x, y) {
     return undefined;
 }
 
+// Returns Arrow at (x,y) coordinate on Canvas, or undefined if none exists
+function getClickedArrow(x, y) {
+    for (const fromState of vars.DFA.states) {
+        for (const toState of vars.DFA.states) {
+            if (!vars.DFA.arrows.get(fromState).has(toState)) {
+                continue;
+            }
+            const [x1,y1] = [fromState.x, fromState.y];
+            const [x2,y2] = [toState.x, toState.y];
+            console.log(pointToLineDistance(x, y, x1, y1, x2, y2))
+            if (pointToLineDistance(x, y, x1, y1, x2, y2) <= 10) {
+                return vars.DFA.arrows.get(fromState).get(toState);
+            }
+        }
+    }
+    return undefined;
+}
+
 // Defines what Sandbox Should do on MouseClick:
 // - If Shift was Pressed Down, start arrow from the location
 // - Else If On a state, Select the state
 function sandboxOnMouseDown(event) {
     let clickedState = getClickedState(event.x, event.y);
+    let clickedArrow = getClickedArrow(event.x, event.y);
     if (event.shiftKey) {
         let [fromX, fromY] = [event.x, event.y];
         if (clickedState !== undefined) {
@@ -229,6 +261,11 @@ function sandboxOnMouseDown(event) {
         vars.selectedState = clickedState;
         vars.dragging = true;
         vars.selectedArrow = undefined;
+    }
+    else if (clickedArrow !== undefined) {
+        // Start Selecting Arrow, Unselect anything Else
+        vars.selectedArrow = clickedArrow;
+        vars.selectedState = undefined;
     }
     sandboxDraw();
 }
@@ -269,6 +306,7 @@ function sandboxOnMouseleave(event) {
 function sandboxOnClick(event) {
     vars.dragging = false;
     let clickedState = getClickedState(event.x, event.y);
+    let clickedArrow = getClickedArrow(event.x, event.y);
     if (vars.floatingArrow !== undefined) {
         // Stopped dragging arrow, Determine if Arrow should be added and how
         const farrow = vars.floatingArrow;
@@ -292,7 +330,8 @@ function sandboxOnClick(event) {
         }
         vars.floatingArrow = undefined;
     }
-    else if (clickedState === undefined) {
+    else if (clickedState === undefined && clickedArrow === undefined) {
+        // Didn't Click on Anything, Create a New Dtate
         let newState = vars.DFA.createState("", false, event.x, event.y);
         vars.selectedArrow = undefined;
         vars.selectedState = newState;
@@ -311,21 +350,37 @@ function sandboxOnDblClick(event) {
     }
 }
 
+// Returns true if given string is a valid character for a transition function
+// or state name
 function isDFAChar(s) {
     return new RegExp(/^[ -~]$/).test(s)
 }
 
 // Defines what Sandbox Should do on KeyDown:
-// - If Delete, delete element selected
-// - If Escape, Unselected element
+// - If Escape, Unselect element
+// - If Selecting an Element with a valid key, add character to state name
+//   or transition chars
 function sandboxOnKeyDown(event) {
     if (event.key === "Escape") {
         vars.selectedState = undefined;
         vars.selectedArrow = undefined;
     }
+    else if (event.ctrlkey || event.metaKey) {
+        return;
+    }
     else if (vars.selectedState !== undefined) {
+        const state = vars.selectedState;
         if (event.key === "Backspace" || event.key === "Delete") {
-            vars.selectedState.name = vars.selectedState.name.slice(0, -1);
+            if (state.name.length === 0) { // Delete State if no more name chars to delete (possibly remove this functionality)
+                if (vars.DFA.startingState === state) {
+                    vars.startingArrow = undefined;
+                }
+                vars.selectedState = undefined;
+                vars.DFA.deleteState(state);
+            }
+            else {
+                vars.selectedState.name = vars.selectedState.name.slice(0, -1);
+            }
         }
         else if (isDFAChar(event.key)){
             vars.selectedState.name += event.key;
@@ -343,5 +398,5 @@ function sandboxOnKeyDown(event) {
 }
 
 function sandboxOnScroll(event){
-    console.log(event);
+    // Not Yet Implemented!
 }
