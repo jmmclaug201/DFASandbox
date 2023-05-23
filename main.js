@@ -8,9 +8,11 @@ const vars = {
     },
     DFA: undefined,
 
-    // What State is Selected and If It's being dragged
-    selectedState: undefined,
+    // Whether Something is being dragged
     dragging: false,
+
+    // What State is Selected
+    selectedState: undefined,
 
     // Whether an Arrow is being dragged
     selectedArrow: undefined,  // Arrow
@@ -53,11 +55,132 @@ function sandboxResize() {
     sandboxDraw();
 }
 
+/******************************************************************************/
+/*                                MATH HELPERS                                */
+/******************************************************************************/
+
+
+// Returns true only if (x1, y1), (x2, y2), and (x3, y3) are collinear points
+function isCollinear(x1, y1, x2, y2, x3, y3) {
+    if (x3-x2 === 0 && x2-x1 === 0) return true;
+    if (x3-x2 === 0 || x2-x1 === 0) return false;
+    return (y2-y1)/(x2-x1) === (y3-y2)/(x3-x2);
+}
+
+// Returns Euclidean distance between (x1, y1) and (x2, y2)
+function distance(x1, y1, x2, y2) {
+    return ((x2-x1)**2 + (y2-y1)**2)**0.5;
+}
+
+// Returns the distance from point (xp, yp) to the line
+// segment between (x1, y1) and (x2, y2)
+function pointToLineDistance(xp, yp, x1, y1, x2, y2) {
+    let dxy = distance(x1, y1, x2, y2);
+    if (dxy === 0) return distance(xp, yp, x1, y1);
+    let t = ((xp-x1)*(x2-x1) + (yp-y1)*(y2-y1)) / dxy**2;
+    t = Math.max(0, Math.min(t, 1)); // t is projection onto line segment
+    return distance(xp, yp, x1 + t*(x2-x1), y1 + t*(y2-y1));
+}
+
+// Returns the distance from point (xp, yp) to the arc
+// From (x1, y1) through (x2, y2) ending at (x3, y3)
+// Or Infinity if (xp, yp) not in correct arc area
+function pointToArcDistance(xp, yp, x1, y1, x2, y2, x3, y3) {
+    if (isCollinear(x1, y1, x2, y2, x3, y3)) {
+        return pointToLineDistance(xp, yp, x1, y1, x3, y3);
+    }
+    const [centerX, centerY] = arcCenter(x1, y1, x2, y2, x3, y3);
+    let t1 = Math.atan2(y1-centerY, x1-centerX); 
+    let t2 = Math.atan2(y2-centerY, x2-centerX); 
+    let t3 = Math.atan2(y3-centerY, x3-centerX); 
+    let tp = Math.atan2(yp-centerY, xp-centerX); 
+
+    function isBetween(a, b, c) {
+        return (a <= b && b <= c) || (c <= b && b <= a);
+    }
+    if (isBetween(t1, t2, t3) === isBetween(t1, tp, t3)) {
+        return Math.abs(distance(xp, yp, centerX, centerY)
+                      - distance(x1, y1, centerX, centerY));
+    }
+    return Infinity;
+}
+
+// Solve System of Following Equations for x and y,
+// Assuming EXACTLY 1 solution exists: 
+//  A1x + B1y + C1 = 0
+//  A2x + B2y + C2 = 0
+function solveSystem(A1, B1, C1, A2, B2, C2) {
+    if (B1 === 0) return [-C1/A1, (A2*(C1/A1)-C2)/B2];
+    if (B2 === 0) return [-C2/A2, (A1*(C2/A2)-C1)/B1];
+    let x = (B2*C1 / B1 - C2) / (A2 - (B2*A1 / B1));
+    let y = (-A1*x-C1) / B1;
+    return [x,y];
+}
+
+// Given (x1, y1), (x2, y2), (x3, y3), returns focal point of arc between
+// first and third points through the second.
+// Assumes three points are NOT collinear
+function arcCenter(x1, y1, x2, y2, x3, y3) {
+    const [bisectX1, bisectY1] = [(x1+x2) / 2, (y1+y2) / 2];
+    const [bisectX2, bisectY2] = [(x2+x3) / 2, (y2+y3) / 2];
+    let [A1, B1, C1] = [0,0,0];
+    if (y1 === y2) [A1, B1, C1] = [1, 0, -x1];
+    else {
+        let slope = -(x2-x1) / (y2-y1);
+        [A1, B1, C1] = [slope, -1, bisectY1 - slope*bisectX1];
+    }
+    let [A2, B2, C2] = [0,0,0];
+    if (y2 === y3) [A2, B2, C2] = [1, 0, -x3];
+    else {
+        let slope = -(x3-x2) / (y3-y2);
+        [A2, B2, C2] = [slope, -1, bisectY2 - slope*bisectX2];
+    }
+
+    return solveSystem(A1, B1, C1, A2, B2, C2);
+}
+
 // Helper Function to sandboxDraw, moves from point at angle for dist length
 function forward(x, y, angle, dist) {
     const newX = x + Math.cos(angle) * dist;
     const newY = y + Math.sin(angle) * dist;
     return [newX, newY];
+}
+
+/******************************************************************************/
+/*                              DRAWING ROUTINES                              */
+/******************************************************************************/
+
+function drawArrow2(ctx, fromX, fromY, midX, midY, toX, toY) {
+    // If colinear, Draw Linear Arrow
+    if (isCollinear(fromX, fromY, midX, midY, toX, toY)) {
+        // Draw Linear Arrow
+        ctx.beginPath();
+        ctx.moveTo(fromX, fromY);
+        ctx.lineTo(toX, toY);
+        ctx.stroke();
+        return;
+    }
+
+    // Find Center Point of Arrow Arc
+    const [centerX, centerY] = arcCenter(fromX, fromY, midX, midY, toX, toY);
+
+    // Find Radius of Circle
+    const r = distance(centerX, centerY, fromX, fromY);
+
+    // Find Start and Ending Angle of Arrow
+    const startAngle = Math.atan2(fromY-centerY, fromX-centerX);
+    const midAngle = Math.atan2(midY-centerY, midX-centerX);
+    const endAngle = Math.atan2(toY-centerY, toX-centerX);
+    
+    // Determine if Angle should be Counterclockwise
+    const cclock = (startAngle <= endAngle && endAngle <= midAngle)
+                || (midAngle <= startAngle && startAngle <= endAngle)
+                || (endAngle <= midAngle && midAngle <= startAngle);
+
+    // Draw Arrow Body
+    ctx.beginPath();
+    ctx.ellipse(centerX, centerY, r, r, 0, startAngle, endAngle, cclock);
+    ctx.stroke();
 }
 
 // Helper Function to sandboxDraw, draws arrow (fromX, fromY) -> (toX, toY)
@@ -94,7 +217,7 @@ function sandboxDraw() {
     ctx.textBaseline = 'middle';
     ctx.font = `${vars.STATE_RADIUS * 0.6}px arial`;
     vars.DFA.states.forEach((state) => {
-        // Draw Red if Selected, else Black, with White fill
+        // Draw SELECTED_COLOR if Selected, else DEFAULT_COLOR
         if (vars.selectedState === state) {
             ctx.strokeStyle = vars.SELECTED_COLOR;
             ctx.fillStyle = vars.SELECTED_COLOR;
@@ -132,12 +255,18 @@ function sandboxDraw() {
                 ctx.strokeStyle = vars.DEFAULT_COLOR;
                 ctx.fillStyle = vars.DEFAULT_COLOR;
             }
-
             const [dx, dy] = [toState.x-fromState.x, toState.y-fromState.y];
             const angle = Math.atan2(dy,dx);
             const [fromX, fromY] = forward(fromState.x, fromState.y, angle, vars.STATE_RADIUS);
             const [toX, toY] = forward(toState.x, toState.y, angle, -vars.STATE_RADIUS);
-            drawArrow(ctx, fromX, fromY, toX, toY);
+            // drawArrow(ctx, fromX, fromY, toX, toY);
+            drawArrow2(ctx, fromState.x, fromState.y, arrow.x, arrow.y, toState.x, toState.y);
+
+            // Draw Characters of Arrow
+            const charString = arrow.chars.toString();
+            const [mx, my] = [(fromX+toX)/2, (fromY+toY)/2];
+            const width = ctx.measureText(charString).width;
+            ctx.fillText(charString, mx, my);
         }
     }
 
@@ -190,20 +319,10 @@ function sandboxDraw() {
     ctx.fill();*/
 }
 
-// Returns Euclidean distance between (x1, y1) and (x2, y2)
-function distance(x1, y1, x2, y2) {
-    return ((x2-x1)**2 + (y2-y1)**2)**0.5;
-}
+/******************************************************************************/
+/*                               EVENT HANDLERS                               */
+/******************************************************************************/
 
-// Returns the minimum distance from point (xp, yp) to the line
-// segment between (x1, y1) and (x2, y2)
-function pointToLineDistance(xp, yp, x1, y1, x2, y2) {
-    let dxy = distance(x1, y1, x2, y2);
-    if (dxy === 0) return distance(xp, yp, x1, y1);
-    let t = ((xp-x1)*(x2-x1) + (yp-y1)*(y2-y1)) / dxy**2;
-    t = Math.max(0, Math.min(t, 1)); // t is projection onto line segment
-    return distance(xp, yp, x1 + t*(x2-x1), y1 + t*(y2-y1));
-}
 
 // Returns State at (x,y) coordinate on Canvas, or undefined if none exists
 function getClickedState(x, y) {
@@ -222,10 +341,12 @@ function getClickedArrow(x, y) {
             if (!vars.DFA.arrows.get(fromState).has(toState)) {
                 continue;
             }
+            const arrow = vars.DFA.arrows.get(fromState).get(toState);
             const [x1,y1] = [fromState.x, fromState.y];
-            const [x2,y2] = [toState.x, toState.y];
-            console.log(pointToLineDistance(x, y, x1, y1, x2, y2))
-            if (pointToLineDistance(x, y, x1, y1, x2, y2) <= 10) {
+            const [x2, y2] = [arrow.x, arrow.y];
+            const [x3,y3] = [toState.x, toState.y];
+            console.log(pointToArcDistance(x, y, x1, y1, x2, y2, x3, y3));
+            if (pointToArcDistance(x, y, x1, y1, x2, y2, x3, y3) <= 20) {
                 return vars.DFA.arrows.get(fromState).get(toState);
             }
         }
@@ -235,7 +356,7 @@ function getClickedArrow(x, y) {
 
 // Defines what Sandbox Should do on MouseClick:
 // - If Shift was Pressed Down, start arrow from the location
-// - Else If On a state, Select the state
+// - Else If On a Element, Select the element
 function sandboxOnMouseDown(event) {
     let clickedState = getClickedState(event.x, event.y);
     let clickedArrow = getClickedArrow(event.x, event.y);
@@ -265,14 +386,15 @@ function sandboxOnMouseDown(event) {
     else if (clickedArrow !== undefined) {
         // Start Selecting Arrow, Unselect anything Else
         vars.selectedArrow = clickedArrow;
+        vars.dragging = true;
         vars.selectedState = undefined;
     }
     sandboxDraw();
 }
 
 // Defines what Sandbox Should do on Mousemove:
-// - If dragging state, update dragged element position
-// - If moving arrow, update arrowhead position
+// - If dragging state or arrow, update dragged element position
+// - If moving floating arrow, update arrowhead position
 function sandboxOnMousemove(event){
     if (vars.floatingArrow !== undefined) {
         vars.floatingArrow.toX = event.x;
@@ -280,21 +402,29 @@ function sandboxOnMousemove(event){
     }
     else if (vars.dragging) {
         let state = vars.selectedState;
-        state.x += event.movementX;
-        state.y += event.movementY;
-        if (vars.DFA.startingState === state) {
-            // Move Starting Arrow with Starting State
-            vars.startingArrow.fromX += event.movementX;
-            vars.startingArrow.fromY += event.movementY;
+        if (state !== undefined) {
+            state.x = event.x;
+            state.y = event.y;
+            if (vars.DFA.startingState === state) {
+                // Move Starting Arrow with Starting State
+                vars.startingArrow.fromX += event.movementX;
+                vars.startingArrow.fromY += event.movementY;
+            }
+        }
+        let arrow = vars.selectedArrow;
+        if (arrow !== undefined) {
+            arrow.x = event.x;
+            arrow.y = event.y;
         }
     }
     sandboxDraw();
 }
 
 // Defines what Sandbox Should do on Mouseleave:
-// - Stop Selection
+// - Stop Selection and dragging
 function sandboxOnMouseleave(event) {
     vars.selectedState = undefined;
+    vars.selectedArrow = undefined;
     vars.dragging = false;
     sandboxDraw();
 }
@@ -315,7 +445,8 @@ function sandboxOnClick(event) {
         if (toState !== undefined) {
             if (fromState !== undefined) {
                 // State to State, should add arrow
-                vars.DFA.createTransition(fromState, toState);
+                vars.DFA.createTransition(fromState, toState,
+                      (fromState.x + toState.x)/2, (fromState.y + toState.y)/2);
                 vars.selectedArrow = vars.DFA.getTransition(fromState, toState);
             }
             else {
@@ -387,16 +518,18 @@ function sandboxOnKeyDown(event) {
         }
     }
     else if (vars.selectedArrow !== undefined) {
+        const arrow = vars.selectedArrow;
         if (event.key === "Backspace" || event.key === "Delete") {
-            vars.selectedArrow.chars.pop();
+            arrow.chars.pop();
         }
-        else if (isDFAChar(event.key)){
-            vars.selectedArrow.chars.push(event.key);
+        else if (isDFAChar(event.key) && !(arrow.chars.includes(event.key))){
+            arrow.chars.push(event.key);
         }
     }
     sandboxDraw();
 }
 
 function sandboxOnScroll(event){
+    vars.sandboxAttributes.zoom += 0.1;
     // Not Yet Implemented!
 }

@@ -2,6 +2,7 @@
 //  - Internal ID (For Printing and Debugging Purposes)
 //  - Name
 //  - Whether State is Accepting
+//  - x and y coordinates of state center
 class State {
     constructor(id, name, accepting, x=0, y=0) {
         // DFA related Values
@@ -17,9 +18,13 @@ class State {
 
 // Arrow Class, Defines DFA arrow with:
 // - Characters using transition
+// - x and y coordinates of middle point of Arrow to define arc between
+//     the states it transitions between
 class Arrow {
-    constructor(chars=[]) {
+    constructor(chars=[], x=0, y=0) {
         this.chars = chars;
+        this.x = x;
+        this.y = y;
     }
 }
 
@@ -73,12 +78,12 @@ class DFA {
     }
 
     // Creates Transition from fromState to toState with no characters
-    createTransition(fromState, toState) {
+    createTransition(fromState, toState, x=0, y=0) {
         if (!(this.states.has(fromState) && this.states.has(toState))) {
             return;
         }
         if (!this.arrows.get(fromState).has(toState)) {
-            this.arrows.get(fromState).set(toState, new Arrow());
+            this.arrows.get(fromState).set(toState, new Arrow([], x, y));
         }
     }
 
