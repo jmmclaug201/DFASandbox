@@ -60,8 +60,10 @@ function sandboxResize() {
 /******************************************************************************/
 
 
-// Returns true only if (x1, y1), (x2, y2), and (x3, y3) are collinear points
+// Returns true only if line exists from (x1, y1) to (x3, y3), via (x2, y2)
 function isCollinear(x1, y1, x2, y2, x3, y3) {
+    if (x1 == x2 && y1 == y2
+        || x2 == x3 && y2 == y3) return true;
     if (x3-x2 === 0 && x2-x1 === 0) return true;
     if (x3-x2 === 0 || x2-x1 === 0) return false;
     return (y2-y1)/(x2-x1) === (y3-y2)/(x3-x2);
@@ -124,13 +126,13 @@ function arcCenter(x1, y1, x2, y2, x3, y3) {
     const [bisectX1, bisectY1] = [(x1+x2) / 2, (y1+y2) / 2];
     const [bisectX2, bisectY2] = [(x2+x3) / 2, (y2+y3) / 2];
     let [A1, B1, C1] = [0,0,0];
-    if (y1 === y2) [A1, B1, C1] = [1, 0, -x1];
+    if (y1 === y2) [A1, B1, C1] = [1, 0, -bisectX1];
     else {
         let slope = -(x2-x1) / (y2-y1);
         [A1, B1, C1] = [slope, -1, bisectY1 - slope*bisectX1];
     }
     let [A2, B2, C2] = [0,0,0];
-    if (y2 === y3) [A2, B2, C2] = [1, 0, -x3];
+    if (y2 === y3) [A2, B2, C2] = [1, 0, -bisectX2];
     else {
         let slope = -(x3-x2) / (y3-y2);
         [A2, B2, C2] = [slope, -1, bisectY2 - slope*bisectX2];
@@ -150,14 +152,49 @@ function forward(x, y, angle, dist) {
 /*                              DRAWING ROUTINES                              */
 /******************************************************************************/
 
-function drawArrow2(ctx, fromX, fromY, midX, midY, toX, toY) {
+// Update strokeStyle and fillStyle based on some boolean
+function updateColor(ctx, bool, trueColor, falseColor) {
+    ctx.strokeStyle = (bool ? trueColor : falseColor);
+    ctx.fillStyle = (bool ? trueColor : falseColor);
+}
+
+// Draw Arrowhead with tip at (x,y) and pointed in direction angle
+function drawArrowHead(ctx, angle, x, y) {
+    const HEAD_ANGLE = Math.PI/4;
+    const HEAD_HEIGHT = vars.STATE_RADIUS * 0.5;
+    const HEAD_WIDTH = HEAD_HEIGHT * Math.tan(HEAD_ANGLE/2);
+
+    // Determine three points of Arrow Head triangle
+    const [backX, backY] = forward(x, y, angle, -HEAD_HEIGHT);
+    const [leftX, leftY] = forward(backX, backY, angle+Math.PI/2, HEAD_WIDTH);
+    const [rightX, rightY] = forward(backX, backY, angle-Math.PI/2, HEAD_WIDTH);
+
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(leftX, leftY);
+    ctx.lineTo(rightX, rightY);
+    ctx.closePath();
+    ctx.fill();
+}
+
+// Draw Arc Arrow from (fromX, fromY) to (toX, toY) via (midX, midY)
+// (fromX, fromY) and (toX, toY) are treated as state centers, meaning the
+// drawn arrow actually starts and ends at different points than specified
+function drawArrow(ctx, fromX, fromY, midX, midY, toX, toY) {
     // If colinear, Draw Linear Arrow
     if (isCollinear(fromX, fromY, midX, midY, toX, toY)) {
+        // Update xs and ys to not start at state center
+        const angle = Math.atan2(toY-fromY, toX-fromX);
+        [fromX, fromY] = forward(fromX, fromY, angle, vars.STATE_RADIUS);
+        [toX, toY] = forward(toX, toY, angle, -vars.STATE_RADIUS);
+
         // Draw Linear Arrow
         ctx.beginPath();
         ctx.moveTo(fromX, fromY);
         ctx.lineTo(toX, toY);
         ctx.stroke();
+
+        drawArrowHead(ctx, angle, toX, toY);
         return;
     }
 
@@ -167,43 +204,30 @@ function drawArrow2(ctx, fromX, fromY, midX, midY, toX, toY) {
     // Find Radius of Circle
     const r = distance(centerX, centerY, fromX, fromY);
 
-    // Find Start and Ending Angle of Arrow
-    const startAngle = Math.atan2(fromY-centerY, fromX-centerX);
-    const midAngle = Math.atan2(midY-centerY, midX-centerX);
-    const endAngle = Math.atan2(toY-centerY, toX-centerX);
+    // Find Start and Ending Angle of state centers
+    let startAngle = Math.atan2(fromY-centerY, fromX-centerX);
+    let midAngle = Math.atan2(midY-centerY, midX-centerX);
+    let endAngle = Math.atan2(toY-centerY, toX-centerX);
     
     // Determine if Angle should be Counterclockwise
     const cclock = (startAngle <= endAngle && endAngle <= midAngle)
                 || (midAngle <= startAngle && startAngle <= endAngle)
                 || (endAngle <= midAngle && midAngle <= startAngle);
 
+    // Adjust Start and Ending Angle to meet with Edges of State Circle
+    const dAngle = 2*Math.asin(0.5*vars.STATE_RADIUS / r);
+    startAngle += (cclock ? -dAngle : dAngle);
+    endAngle += (cclock ? dAngle : -dAngle);
+
     // Draw Arrow Body
     ctx.beginPath();
     ctx.ellipse(centerX, centerY, r, r, 0, startAngle, endAngle, cclock);
     ctx.stroke();
-}
 
-// Helper Function to sandboxDraw, draws arrow (fromX, fromY) -> (toX, toY)
-function drawArrow(ctx, fromX, fromY, toX, toY) {
-    const angle = Math.atan2(toY-fromY, toX-fromX);
-    // Draw Arrow Line
-    ctx.beginPath();
-    ctx.moveTo(fromX, fromY);
-    ctx.lineTo(toX, toY);
-    ctx.stroke();
     // Draw Arrow Head
-    const HEAD_ANGLE = Math.PI/4;
-    const HEAD_HEIGHT = vars.STATE_RADIUS * 0.5;
-    const HEAD_WIDTH = HEAD_HEIGHT * Math.tan(HEAD_ANGLE/2)
-    const [backX, backY] = forward(toX, toY, angle, -HEAD_HEIGHT);
-    const [leftX, leftY] = forward(backX, backY, angle+Math.PI/2, HEAD_WIDTH);
-    const [rightX, rightY] = forward(backX, backY, angle-Math.PI/2, HEAD_WIDTH);
-    ctx.beginPath();
-    ctx.moveTo(toX, toY);
-    ctx.lineTo(leftX, leftY);
-    ctx.lineTo(rightX, rightY);
-    ctx.closePath();
-    ctx.fill();
+    const angle = endAngle + (cclock ? -Math.PI/2 : +Math.PI/2);
+    [toX, toY] = [centerX + r*Math.cos(endAngle), centerY + r*Math.sin(endAngle)];
+    drawArrowHead(ctx, angle, toX, toY);
 }
 
 // Draw Sandbox Canvas Screen
@@ -213,26 +237,22 @@ function sandboxDraw() {
     ctx.clearRect(0, 0, sandbox.width, sandbox.height);
 
     // Draw States in DFA
+    const r = vars.STATE_RADIUS;
     ctx.textAlign = "center";
     ctx.textBaseline = 'middle';
-    ctx.font = `${vars.STATE_RADIUS * 0.6}px arial`;
+    ctx.font = `${r * 0.6}px arial`;
     vars.DFA.states.forEach((state) => {
         // Draw SELECTED_COLOR if Selected, else DEFAULT_COLOR
-        if (vars.selectedState === state) {
-            ctx.strokeStyle = vars.SELECTED_COLOR;
-            ctx.fillStyle = vars.SELECTED_COLOR;
-        }
-        else {
-            ctx.strokeStyle = vars.DEFAULT_COLOR;
-            ctx.fillStyle = vars.DEFAULT_COLOR;
-        }
+        updateColor(ctx, vars.selectedState === state, 
+                    vars.SELECTED_COLOR, vars.DEFAULT_COLOR);
+
         // Draw Circles of state
         ctx.beginPath();
-        ctx.ellipse(state.x, state.y, vars.STATE_RADIUS, vars.STATE_RADIUS, 0, 0, 2*Math.PI);
+        ctx.ellipse(state.x, state.y, r, r, 0, 0, 2*Math.PI);
         ctx.stroke();
         if (state.accepting) {
             ctx.beginPath();
-            ctx.ellipse(state.x, state.y, 0.8*vars.STATE_RADIUS, 0.8*vars.STATE_RADIUS, 0, 0, 2*Math.PI);
+            ctx.ellipse(state.x, state.y, 0.8*r, 0.8*r, 0, 0, 2*Math.PI);
             ctx.stroke();
         }
         // Draw state name
@@ -247,26 +267,16 @@ function sandboxDraw() {
             }
             // Draw Arrow from fromState to toState
             const arrow = vars.DFA.arrows.get(fromState).get(toState);
-            if (vars.selectedArrow === arrow) {
-                ctx.strokeStyle = vars.SELECTED_COLOR;
-                ctx.fillStyle = vars.SELECTED_COLOR;
-            }
-            else {
-                ctx.strokeStyle = vars.DEFAULT_COLOR;
-                ctx.fillStyle = vars.DEFAULT_COLOR;
-            }
-            const [dx, dy] = [toState.x-fromState.x, toState.y-fromState.y];
-            const angle = Math.atan2(dy,dx);
-            const [fromX, fromY] = forward(fromState.x, fromState.y, angle, vars.STATE_RADIUS);
-            const [toX, toY] = forward(toState.x, toState.y, angle, -vars.STATE_RADIUS);
-            // drawArrow(ctx, fromX, fromY, toX, toY);
-            drawArrow2(ctx, fromState.x, fromState.y, arrow.x, arrow.y, toState.x, toState.y);
+            updateColor(ctx, vars.selectedArrow === arrow, 
+                        vars.SELECTED_COLOR, vars.DEFAULT_COLOR);
+
+            drawArrow(ctx, fromState.x, fromState.y, arrow.x, arrow.y, toState.x, toState.y);
 
             // Draw Characters of Arrow
-            const charString = arrow.chars.toString();
+            /*const charString = arrow.chars.toString();
             const [mx, my] = [(fromX+toX)/2, (fromY+toY)/2];
             const width = ctx.measureText(charString).width;
-            ctx.fillText(charString, mx, my);
+            ctx.fillText(charString, mx, my);*/
         }
     }
 
@@ -280,23 +290,23 @@ function sandboxDraw() {
         const fromState = getClickedState(farrow.fromX, farrow.fromY);
         const toState = getClickedState(farrow.toX, farrow.toY);
 
-        // Compute Arrow Angle
+        // Snap Arrow End to State
         if (toState !== undefined) {
-            // (toX, toY) is in a state, snap and move head backward
             [toX, toY] = [toState.x, toState.y]
         }
-        angle = Math.atan2(toY-fromY, toX-fromX);
 
-        // Given Arrow Angle, Compute Arrow base and head
-        if (fromState !== undefined) {
-            // (fromX, fromY) is CENTER of a state, move base forward
-            [fromX, fromY] = forward(fromX, fromY, angle, vars.STATE_RADIUS);
+        // Compute Arrow Angle
+        let angle = Math.atan2(toY-fromY, toX-fromX);
+
+        // Move Arrow Ends to Adjust for drawArrow state snapping
+        if (fromState === undefined) {
+            [fromX, fromY] = forward(fromX, fromY, angle, -vars.STATE_RADIUS);
         }
-        if (toState !== undefined) {
-            [toX, toY] = forward(toX, toY, angle, -vars.STATE_RADIUS);
+        if (toState === undefined) {
+            [toX, toY] = forward(toX, toY, angle, vars.STATE_RADIUS);
         }
         
-        drawArrow(ctx, fromX, fromY, toX, toY);
+        drawArrow(ctx, fromX, fromY, toX, toY, toX, toY);
     }
 
     // Draw Stating Arrow, if it exists
@@ -304,11 +314,13 @@ function sandboxDraw() {
         ctx.strokeStyle = vars.DEFAULT_COLOR;
         ctx.fillStyle = vars.DEFAULT_COLOR;
         const sarrow = vars.startingArrow;
+
         let [fromX, fromY] = [sarrow.fromX, sarrow.fromY];
         let [toX, toY] = [sarrow.toState.x, sarrow.toState.y];
         angle = Math.atan2(toY-fromY, toX-fromX);
-        [toX, toY] = forward(toX, toY, angle, -vars.STATE_RADIUS);
-        drawArrow(ctx, fromX, fromY, toX, toY);
+
+        [fromX, fromY] = forward(fromX, fromY, angle, -vars.STATE_RADIUS);
+        drawArrow(ctx, fromX, fromY, toX, toY, toX, toY);
     }
 
     /* Draw Toolbar to Run DFA 
