@@ -20,10 +20,13 @@ const vars = {
     
     // Starting State Arrow info
     startingArrow: undefined,  // Object
+    selectingStartingArrow: false,
 
     // Sandbox Drawing Constants
     DEFAULT_COLOR: "black",
     SELECTED_COLOR: "blue",
+    BAD_COLOR: "red",
+    GOOD_COLOR: "green",
     STATE_RADIUS: 40,
 };
 
@@ -66,7 +69,8 @@ function isCollinear(x1, y1, x2, y2, x3, y3) {
         || x2 == x3 && y2 == y3) return true;
     if (x3-x2 === 0 && x2-x1 === 0) return true;
     if (x3-x2 === 0 || x2-x1 === 0) return false;
-    return (y2-y1)/(x2-x1) === (y3-y2)/(x3-x2);
+    // Return true if collinear within a rounding error
+    return Math.abs(Math.atan2(y2-y1, x2-x1) - Math.atan2(y3-y2, x3-x2)) < 0.01;
 }
 
 // Returns Euclidean distance between (x1, y1) and (x2, y2)
@@ -139,6 +143,31 @@ function arcCenter(x1, y1, x2, y2, x3, y3) {
     }
 
     return solveSystem(A1, B1, C1, A2, B2, C2);
+}
+
+// Given (x1, y1), (x2, y2), (x3, y3), returns midpoint of arc between
+// first and third points through the second.
+function arcMidpoint(x1, y1, x2, y2, x3, y3) {
+    if (isCollinear(x1, y1, x2, y2, x3, y3)) {
+        return [(x1+x3)/2, (y1+y3)/2];
+    }
+    const [centerX, centerY] = arcCenter(x1, y1, x2, y2, x3, y3);
+    const angle1 = Math.atan2(y1-centerY, x1-centerX); 
+    const angle2 = Math.atan2(y2-centerY, x2-centerX);
+    const angle3 = Math.atan2(y3-centerY, x3-centerX);
+
+    // Determine if Arc is Counterclockwise
+    const cclock = (angle1 <= angle3 && angle3 <= angle2)
+                || (angle2 <= angle1 && angle1 <= angle3)
+                || (angle3 <= angle2 && angle2 <= angle1);
+    
+    let midAngle = (angle1 + angle3) / 2;
+    if ((cclock && angle1 < angle3) || (!cclock && angle1 > angle3)) {
+         midAngle += Math.PI;
+    }
+
+    const r = distance(centerX, centerY, x1, y1);
+    return [centerX + r * Math.cos(midAngle), centerY + r * Math.sin(midAngle)];
 }
 
 // Helper Function to sandboxDraw, moves from point at angle for dist length
@@ -240,7 +269,8 @@ function sandboxDraw() {
     const r = vars.STATE_RADIUS;
     ctx.textAlign = "center";
     ctx.textBaseline = 'middle';
-    ctx.font = `${r * 0.6}px arial`;
+    const charHeight = r * 0.6;
+    ctx.font = `${charHeight}px arial`;
     vars.DFA.states.forEach((state) => {
         // Draw SELECTED_COLOR if Selected, else DEFAULT_COLOR
         updateColor(ctx, vars.selectedState === state, 
@@ -273,10 +303,19 @@ function sandboxDraw() {
             drawArrow(ctx, fromState.x, fromState.y, arrow.x, arrow.y, toState.x, toState.y);
 
             // Draw Characters of Arrow
-            /*const charString = arrow.chars.toString();
-            const [mx, my] = [(fromX+toX)/2, (fromY+toY)/2];
-            const width = ctx.measureText(charString).width;
-            ctx.fillText(charString, mx, my);*/
+            let charString = arrow.chars.toString();
+            const [mx, my] = arcMidpoint(fromState.x, fromState.y, arrow.x, arrow.y, toState.x, toState.y);
+            if (charString === "" && vars.selectedArrow !== arrow) {
+                ctx.fillStyle = "red";
+                charString = "?"
+            }
+            const charWidth = ctx.measureText(charString).width;
+
+            ctx.fillText(charString, mx, my);
+            ctx.strokeStyle = "red";
+            ctx.beginPath();
+            ctx.rect(mx-charWidth/2, my-charHeight/2, charWidth, charHeight);
+            ctx.stroke();
         }
     }
 
@@ -311,8 +350,8 @@ function sandboxDraw() {
 
     // Draw Stating Arrow, if it exists
     if (vars.startingArrow !== undefined) {
-        ctx.strokeStyle = vars.DEFAULT_COLOR;
-        ctx.fillStyle = vars.DEFAULT_COLOR;
+        updateColor(ctx, vars.selectingStartingArrow, 
+                    vars.SELECTED_COLOR, vars.DEFAULT_COLOR);
         const sarrow = vars.startingArrow;
 
         let [fromX, fromY] = [sarrow.fromX, sarrow.fromY];
@@ -357,13 +396,20 @@ function getClickedArrow(x, y) {
             const [x1,y1] = [fromState.x, fromState.y];
             const [x2, y2] = [arrow.x, arrow.y];
             const [x3,y3] = [toState.x, toState.y];
-            console.log(pointToArcDistance(x, y, x1, y1, x2, y2, x3, y3));
-            if (pointToArcDistance(x, y, x1, y1, x2, y2, x3, y3) <= 20) {
+            if (pointToArcDistance(x, y, x1, y1, x2, y2, x3, y3) <= 20) { // NO MAGIC NUMBERS
                 return vars.DFA.arrows.get(fromState).get(toState);
             }
         }
     }
     return undefined;
+}
+
+function clickedStartingArrow(x, y) {
+    const arrow = vars.startingArrow;
+    if (arrow === undefined) return false;
+    const [x1, y1] = [arrow.fromX, arrow.fromY];
+    const [x2, y2] = [arrow.toState.x, arrow.toState.y]; // Technically incorrect, but ok since will always be checked after clickedState
+    return pointToLineDistance(x, y, x1, y1, x2, y2) <= 20; // NO MAGIC NUMBERS
 }
 
 // Defines what Sandbox Should do on MouseClick:
@@ -372,6 +418,7 @@ function getClickedArrow(x, y) {
 function sandboxOnMouseDown(event) {
     let clickedState = getClickedState(event.x, event.y);
     let clickedArrow = getClickedArrow(event.x, event.y);
+    let clickedStarting = clickedStartingArrow(event.x, event.y);
     if (event.shiftKey) {
         let [fromX, fromY] = [event.x, event.y];
         if (clickedState !== undefined) {
@@ -394,18 +441,28 @@ function sandboxOnMouseDown(event) {
         vars.selectedState = clickedState;
         vars.dragging = true;
         vars.selectedArrow = undefined;
+        vars.selectingStartingArrow = false;
     }
     else if (clickedArrow !== undefined) {
         // Start Selecting Arrow, Unselect anything Else
         vars.selectedArrow = clickedArrow;
         vars.dragging = true;
         vars.selectedState = undefined;
+        vars.selectingStartingArrow = false;
+    }
+    else if (clickedStarting) {
+        // Start Selecting Starting Arrow, Unselect anything Else
+        vars.selectingStartingArrow = true;
+        vars.dragging = true;
+        vars.selectedState = undefined;
+        vars.selectedArrow = undefined;
     }
     sandboxDraw();
 }
 
 // Defines what Sandbox Should do on Mousemove:
 // - If dragging state or arrow, update dragged element position
+//   - If moving state, update all incident arrow middle points
 // - If moving floating arrow, update arrowhead position
 function sandboxOnMousemove(event){
     if (vars.floatingArrow !== undefined) {
@@ -415,18 +472,50 @@ function sandboxOnMousemove(event){
     else if (vars.dragging) {
         let state = vars.selectedState;
         if (state !== undefined) {
-            state.x = event.x;
-            state.y = event.y;
+            state.x += event.movementX;
+            state.y += event.movementY;
             if (vars.DFA.startingState === state) {
                 // Move Starting Arrow with Starting State
                 vars.startingArrow.fromX += event.movementX;
                 vars.startingArrow.fromY += event.movementY;
+            }
+
+            // Update Incident arrow Positions
+            function updateArrowLoc(orbitState, arrow) {
+                const [oX, oY] = [orbitState.x, orbitState.y];
+                const [sX, sY] = [state.x, state.y];
+                const [oldsX, oldsY] = [sX-event.movementX, sY-event.movementY];
+
+                // Calculate change in distance and angle
+                const dR = distance(oX, oY, sX, sY) / distance(oX, oY, oldsX, oldsY);
+                const dAngle = Math.atan2(sY-oY,sX-oX) - Math.atan2(oldsY-oY,oldsX-oX);
+
+                // Update arrow coords to reflect changes
+                let arrowR = dR * distance(oX, oY, arrow.x, arrow.y);
+                let arrowAngle = dAngle + Math.atan2(arrow.y-oY,arrow.x-oX);
+                arrow.x = oX + arrowR * Math.cos(arrowAngle);
+                arrow.y = oY + arrowR * Math.sin(arrowAngle);
+            }
+
+            for (const orbitState of vars.DFA.states) {
+                if (vars.DFA.arrows.get(state).has(orbitState)) {
+                    const arrow = vars.DFA.arrows.get(state).get(orbitState);
+                    updateArrowLoc(orbitState, arrow);
+                }
+                if (vars.DFA.arrows.get(orbitState).has(state)) {
+                    const arrow = vars.DFA.arrows.get(orbitState).get(state);
+                    updateArrowLoc(orbitState, arrow);
+                }
             }
         }
         let arrow = vars.selectedArrow;
         if (arrow !== undefined) {
             arrow.x = event.x;
             arrow.y = event.y;
+        }
+        if (vars.selectingStartingArrow) {
+            vars.startingArrow.fromX = event.x;
+            vars.startingArrow.fromY = event.y;
         }
     }
     sandboxDraw();
@@ -437,6 +526,7 @@ function sandboxOnMousemove(event){
 function sandboxOnMouseleave(event) {
     vars.selectedState = undefined;
     vars.selectedArrow = undefined;
+    vars.selectingStartingArrow = false;
     vars.dragging = false;
     sandboxDraw();
 }
@@ -449,6 +539,7 @@ function sandboxOnClick(event) {
     vars.dragging = false;
     let clickedState = getClickedState(event.x, event.y);
     let clickedArrow = getClickedArrow(event.x, event.y);
+    let clickedStarting = clickedStartingArrow(event.x, event.y);
     if (vars.floatingArrow !== undefined) {
         // Stopped dragging arrow, Determine if Arrow should be added and how
         const farrow = vars.floatingArrow;
@@ -469,11 +560,12 @@ function sandboxOnClick(event) {
                     fromY: vars.floatingArrow.fromY,
                     toState: toState,
                 };
+                vars.selectingStartingArrow = true;
             }
         }
         vars.floatingArrow = undefined;
     }
-    else if (clickedState === undefined && clickedArrow === undefined) {
+    else if (clickedState === undefined && clickedArrow === undefined && !clickedStarting) {
         // Didn't Click on Anything, Create a New Dtate
         let newState = vars.DFA.createState("", false, event.x, event.y);
         vars.selectedArrow = undefined;
@@ -517,6 +609,7 @@ function sandboxOnKeyDown(event) {
             if (state.name.length === 0) { // Delete State if no more name chars to delete (possibly remove this functionality)
                 if (vars.DFA.startingState === state) {
                     vars.startingArrow = undefined;
+                    vars.selectingStartingArrow = false;
                 }
                 vars.selectedState = undefined;
                 vars.DFA.deleteState(state);
@@ -532,10 +625,23 @@ function sandboxOnKeyDown(event) {
     else if (vars.selectedArrow !== undefined) {
         const arrow = vars.selectedArrow;
         if (event.key === "Backspace" || event.key === "Delete") {
-            arrow.chars.pop();
+            if (arrow.chars.length === 0) {
+                vars.selectedArrow = undefined;
+                vars.DFA.deleteTransition(arrow);
+            }
+            else{
+                arrow.chars.pop();
+            }
         }
         else if (isDFAChar(event.key) && !(arrow.chars.includes(event.key))){
             arrow.chars.push(event.key);
+        }
+    }
+    else if (vars.selectingStartingArrow) {
+        if (event.key === "Backspace" || event.key === "Delete") {
+            vars.selectingStartingArrow = false;
+            vars.startingArrow = undefined;
+            vars.DFA.setStartingState(undefined);
         }
     }
     sandboxDraw();

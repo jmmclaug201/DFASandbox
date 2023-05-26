@@ -17,11 +17,14 @@ class State {
 }
 
 // Arrow Class, Defines DFA arrow with:
+// - toState and fromState arrow transitions between
 // - Characters using transition
 // - x and y coordinates of middle point of Arrow to define arc between
 //     the states it transitions between
 class Arrow {
-    constructor(chars=[], x=0, y=0) {
+    constructor(toState, fromState, chars=[], x=0, y=0) {
+        this.toState = toState;
+        this.fromState = fromState;
         this.chars = chars;
         this.x = x;
         this.y = y;
@@ -57,6 +60,9 @@ class DFA {
         if (this.states.has(state)) {
             this.startingState = state;
         }
+        else {
+            this.startingState = undefined;
+        }
     }
 
     // Turns Accepting State into Rejecting State, and vice versa
@@ -83,7 +89,8 @@ class DFA {
             return;
         }
         if (!this.arrows.get(fromState).has(toState)) {
-            this.arrows.get(fromState).set(toState, new Arrow([], x, y));
+            this.arrows.get(fromState).set(toState, 
+                            new Arrow(fromState, toState, [], x, y));
         }
     }
 
@@ -105,7 +112,8 @@ class DFA {
     }
 
     // Deletes Transition from fromState to toState, if one exists
-    deleteTransition(fromState, toState) {
+    deleteTransition(arrow) {
+        const [fromState, toState] = [arrow.toState, arrow.fromState];
         if (!(this.states.has(fromState) && this.states.has(toState))) {
             return;
         }
