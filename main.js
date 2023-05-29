@@ -147,11 +147,10 @@ function arcCenter(x1, y1, x2, y2, x3, y3) {
 
 // Given (x1, y1), (x2, y2), (x3, y3), returns midpoint of arc between
 // first and third points through the second.
-function arcMidpoint(x1, y1, x2, y2, x3, y3) {
+function arcMidpoint(centerX, centerY, x1, y1, x2, y2, x3, y3) {
     if (isCollinear(x1, y1, x2, y2, x3, y3)) {
         return [(x1+x3)/2, (y1+y3)/2];
     }
-    const [centerX, centerY] = arcCenter(x1, y1, x2, y2, x3, y3);
     const angle1 = Math.atan2(y1-centerY, x1-centerX); 
     const angle2 = Math.atan2(y2-centerY, x2-centerX);
     const angle3 = Math.atan2(y3-centerY, x3-centerX);
@@ -259,6 +258,53 @@ function drawArrow(ctx, fromX, fromY, midX, midY, toX, toY) {
     drawArrowHead(ctx, angle, toX, toY);
 }
 
+// Draw Characters for Arrow onto Sandbox Canvas
+function drawArrowChars(ctx, fromState, arrow, toState, charHeight) {
+    // Define charString
+    let charString = arrow.chars.toString();
+    if (charString === "" && vars.selectedArrow !== arrow) {
+        ctx.fillStyle = "red";
+        charString = "?"
+    }
+    const charWidth = ctx.measureText(charString).width;
+    
+    // Find Arc Center, Midpoint
+    const [x1, y1] = [fromState.x, fromState.y];
+    const [x2, y2] = [arrow.x, arrow.y];
+    const [x3, y3] = [toState.x, toState.y];
+
+    // Handle Collinear Case
+    if (isCollinear(x1, y1, x2, y2, x3, y3)) {
+        return;
+    }
+
+    const [centerX, centerY] = arcCenter(x1, y1, x2, y2, x3, y3);
+    const radius = distance(centerX, centerY, x1, y1);
+
+    let [midX, midY] = arcMidpoint(centerX, centerY, x1, y1, x2, y2, x3, y3);
+    const midAngle = Math.atan2(midY-centerY, midX-centerX);
+
+    // Move string to not intersect with arc
+    let [testX, testY] = [centerX, centerY];
+
+    if (centerX < midX-charWidth/2) testX = midX-charWidth/2;
+    else if (centerX > midX+charWidth/2) testX = midX+charWidth/2;
+    if (centerY < midY-charHeight/2) testY = midY-charHeight/2;
+    else if (centerY > midY+charHeight/2) testY = midY+charHeight/2;
+
+    let dist = distance(centerX, centerY, testX, testY);
+
+    midX += (radius-dist) * Math.cos(midAngle);
+    midY += (radius-dist) * Math.sin(midAngle);
+
+    // Draw chars
+    ctx.fillText(charString, midX, midY);
+    /*ctx.strokeStyle = "red";
+    ctx.beginPath();
+    ctx.rect(midX-charWidth/2, midY-charHeight/2, charWidth, charHeight);
+    ctx.stroke();*/
+}
+
 // Draw Sandbox Canvas Screen
 function sandboxDraw() {
     const sandbox = vars.sandbox;
@@ -303,19 +349,7 @@ function sandboxDraw() {
             drawArrow(ctx, fromState.x, fromState.y, arrow.x, arrow.y, toState.x, toState.y);
 
             // Draw Characters of Arrow
-            let charString = arrow.chars.toString();
-            const [mx, my] = arcMidpoint(fromState.x, fromState.y, arrow.x, arrow.y, toState.x, toState.y);
-            if (charString === "" && vars.selectedArrow !== arrow) {
-                ctx.fillStyle = "red";
-                charString = "?"
-            }
-            const charWidth = ctx.measureText(charString).width;
-
-            ctx.fillText(charString, mx, my);
-            ctx.strokeStyle = "red";
-            ctx.beginPath();
-            ctx.rect(mx-charWidth/2, my-charHeight/2, charWidth, charHeight);
-            ctx.stroke();
+            drawArrowChars(ctx, fromState, arrow, toState, charHeight);
         }
     }
 
