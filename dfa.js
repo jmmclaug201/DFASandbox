@@ -45,6 +45,23 @@ class DFA {
         this.arrows = new WeakMap(); // convert to weakmap
     }
 
+    // Return Whether the DFA is valid, i.e:
+    //  - Has a Starting State
+    //  - No Empty Transitions
+    //  - No two transitions with same character from same state (IMPLEMENT!)
+    isValid() {
+        if (this.startingState === undefined) return false;
+        for (const fromState of this.states) {
+            for (const toState of this.states) {
+                if (this.arrows.get(fromState).has(toState)
+                 && this.arrows.get(fromState).get(toState).chars.length === 0) {
+                    return false;
+                 }
+            }
+        }
+        return true;
+    }
+
     // Create new state
     createState(name, accepting, x=0, y=0) {
         let state = new State(this.nextId, name, accepting, x, y);
@@ -126,19 +143,20 @@ class DFA {
         if (!this.states.has(fromState)) {
             return undefined;
         }
-        // CONVERT FROM HERE DOWN TO WEAKMAP!!!
         const arrowsFrom = this.arrows.get(fromState);
-        for (const toState in this.states) {
+        for (const toState of this.states) {
             const arrow = arrowsFrom.get(toState);
             if (arrow !== undefined && arrow.chars.includes(character)) {
-                return toState
+                return toState;
             }
         }
         return undefined;
     }
 
-    // Given input to the DFA, returns ending state and whether DFA accepts
+    // Given input to the DFA, returns states accessed and whether DFA accepts,
+    // Or undefined if the DFA itself is invalid
     evaluate(input) {
+        if (!this.isValid()) return undefined;
         let states = [this.startingState];
         for (const character of input) {
             if (states[states.length-1] === undefined){

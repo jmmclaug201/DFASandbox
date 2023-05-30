@@ -8,6 +8,10 @@ const vars = {
     },
     DFA: undefined,
 
+    // Information about DFA Results on Input
+    DFAResults: undefined,
+    DFAIndex: -2, //-2 for not currently running, -1 for starting state
+
     // Whether Something is being dragged
     dragging: false,
 
@@ -25,8 +29,9 @@ const vars = {
     // Sandbox Drawing Constants
     DEFAULT_COLOR: "black",
     SELECTED_COLOR: "blue",
-    BAD_COLOR: "red",
-    GOOD_COLOR: "green",
+    ERROR_COLOR: "red",
+    REJECT_COLOR: "red",
+    ACCEPT_COLOR: "green",
     STATE_RADIUS: 40,
 };
 
@@ -48,6 +53,8 @@ window.onload = function(){
     window.addEventListener("keydown", sandboxOnKeyDown);
     window.addEventListener("scroll", sandboxOnScroll);
     window.addEventListener("mousewheel", sandboxOnScroll);
+
+    initMenu();
 }
 
 // Resize Sandbox to window Width and Height
@@ -263,7 +270,7 @@ function drawArrowChars(ctx, fromState, arrow, toState, charHeight) {
     // Define charString
     let charString = arrow.chars.toString();
     if (charString === "" && vars.selectedArrow !== arrow) {
-        ctx.fillStyle = "red";
+        ctx.fillStyle = vars.ERROR_COLOR;
         charString = "?"
     }
     const charWidth = ctx.measureText(charString).width;
@@ -321,6 +328,11 @@ function sandboxDraw() {
         // Draw SELECTED_COLOR if Selected, else DEFAULT_COLOR
         updateColor(ctx, vars.selectedState === state, 
                     vars.SELECTED_COLOR, vars.DEFAULT_COLOR);
+        // If running DFA and on state, display as ACCEPT or REJECT
+        if (vars.DFAResults !== undefined 
+            && vars.DFAResults.states[vars.DFAIndex+1] === state) {
+            updateColor(ctx, state.accepting, vars.ACCEPT_COLOR, vars.REJECT_COLOR);
+        }
 
         // Draw Circles of state
         ctx.beginPath();
@@ -345,6 +357,11 @@ function sandboxDraw() {
             const arrow = vars.DFA.arrows.get(fromState).get(toState);
             updateColor(ctx, vars.selectedArrow === arrow, 
                         vars.SELECTED_COLOR, vars.DEFAULT_COLOR);
+            if (vars.DFAResults !== undefined && vars.DFAIndex >= 0
+             && vars.DFAResults.states[vars.DFAIndex] === fromState
+             && vars.DFAResults.states[vars.DFAIndex+1] === toState) {
+                updateColor(ctx, toState.accepting, vars.ACCEPT_COLOR, vars.REJECT_COLOR);
+            }
 
             drawArrow(ctx, fromState.x, fromState.y, arrow.x, arrow.y, toState.x, toState.y);
 
@@ -386,6 +403,10 @@ function sandboxDraw() {
     if (vars.startingArrow !== undefined) {
         updateColor(ctx, vars.selectingStartingArrow, 
                     vars.SELECTED_COLOR, vars.DEFAULT_COLOR);
+        if (vars.DFAResults !== undefined && vars.DFAIndex === -1) {
+            updateColor(ctx, vars.startingArrow.toState.accepting, vars.ACCEPT_COLOR, vars.REJECT_COLOR);
+        }
+
         const sarrow = vars.startingArrow;
 
         let [fromX, fromY] = [sarrow.fromX, sarrow.fromY];
@@ -596,6 +617,7 @@ function sandboxOnClick(event) {
                 };
                 vars.selectingStartingArrow = true;
             }
+            resetDFA(); // Added Something to DFA, reset output
         }
         vars.floatingArrow = undefined;
     }
@@ -604,6 +626,7 @@ function sandboxOnClick(event) {
         let newState = vars.DFA.createState("", false, event.x, event.y);
         vars.selectedArrow = undefined;
         vars.selectedState = newState;
+        resetDFA(); // Add something to DFA, reset output
     }
     console.log(vars.DFA.toString());
     sandboxDraw();
@@ -615,6 +638,7 @@ function sandboxOnDblClick(event) {
     let state = getClickedState(event.x, event.y);
     if (state !== undefined) {
         vars.DFA.toggleStateAccepting(state);
+        resetDFA(); // Add something to DFA, reset output
         sandboxDraw();
     }
 }
@@ -647,6 +671,7 @@ function sandboxOnKeyDown(event) {
                 }
                 vars.selectedState = undefined;
                 vars.DFA.deleteState(state);
+                resetDFA(); // Changed DFA, reset output
             }
             else {
                 vars.selectedState.name = vars.selectedState.name.slice(0, -1);
@@ -662,6 +687,7 @@ function sandboxOnKeyDown(event) {
             if (arrow.chars.length === 0) {
                 vars.selectedArrow = undefined;
                 vars.DFA.deleteTransition(arrow);
+                resetDFA(); // Changed DFA, reset output
             }
             else{
                 arrow.chars.pop();
@@ -676,6 +702,7 @@ function sandboxOnKeyDown(event) {
             vars.selectingStartingArrow = false;
             vars.startingArrow = undefined;
             vars.DFA.setStartingState(undefined);
+            resetDFA(); // Changed DFA, reset output
         }
     }
     sandboxDraw();
