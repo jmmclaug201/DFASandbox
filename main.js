@@ -33,6 +33,9 @@ const vars = {
     REJECT_COLOR: "red",
     ACCEPT_COLOR: "green",
     STATE_RADIUS: 40,
+
+    // Time between cursor blinking and unblinking in ms 
+    cursorBlinkRate: 500
 };
 
 window.onload = function(){
@@ -54,7 +57,11 @@ window.onload = function(){
     window.addEventListener("scroll", sandboxOnScroll);
     window.addEventListener("mousewheel", sandboxOnScroll);
 
+    // Initialize Menu
     initMenu();
+
+    // Start Sandbox Refresh Loop
+    sandboxRefresher();
 }
 
 // Resize Sandbox to window Width and Height
@@ -193,6 +200,16 @@ function updateColor(ctx, bool, trueColor, falseColor) {
     ctx.fillStyle = (bool ? trueColor : falseColor);
 }
 
+// Draws blinking cursor from (x, y1) to (x, y2)
+function drawBlinkingCursor(ctx, x, y1, y2) {
+    if (Date.now() % (2*vars.cursorBlinkRate) < vars.cursorBlinkRate) {
+        ctx.beginPath();
+        ctx.moveTo(x, y1);
+        ctx.lineTo(x, y2);
+        ctx.stroke();    
+    }
+}
+
 // Draw Arrowhead with tip at (x,y) and pointed in direction angle
 function drawArrowHead(ctx, angle, x, y) {
     const HEAD_ANGLE = Math.PI/4;
@@ -280,36 +297,51 @@ function drawArrowChars(ctx, fromState, arrow, toState, charHeight) {
     const [x2, y2] = [arrow.x, arrow.y];
     const [x3, y3] = [toState.x, toState.y];
 
+    let [midX, midY] = [0,0];
     // Handle Collinear Case
     if (isCollinear(x1, y1, x2, y2, x3, y3)) {
-        return;
+        [midX, midY] = [(x3+x1)/2, (y3+y1)/2];
+        const midAngle = Math.atan2(y3-y1, x3-x1) - Math.PI / 2
+                         + (x1 > x3 ? Math.PI : 0);
+        
+        // Move text center by largest amount needed for each of four corners
+        let [top,bottom] = [midY - charHeight/2, midY + charHeight/2];
+        let left = midX - charWidth/2;
+        let dist = Math.max(pointToLineDistance(left, top, x1, y1, x3, y3),
+                        pointToLineDistance(left, bottom, x1, y1, x3, y3));
+        midX += dist * Math.cos(midAngle);
+        midY += dist * Math.sin(midAngle);      
     }
+    else {
+        const [centerX, centerY] = arcCenter(x1, y1, x2, y2, x3, y3);
+        const radius = distance(centerX, centerY, x1, y1);
 
-    const [centerX, centerY] = arcCenter(x1, y1, x2, y2, x3, y3);
-    const radius = distance(centerX, centerY, x1, y1);
+        [midX, midY] = arcMidpoint(centerX, centerY, x1, y1, x2, y2, x3, y3);
+        const midAngle = Math.atan2(midY-centerY, midX-centerX);
 
-    let [midX, midY] = arcMidpoint(centerX, centerY, x1, y1, x2, y2, x3, y3);
-    const midAngle = Math.atan2(midY-centerY, midX-centerX);
+        // Move string to not intersect with arc
+        let [testX, testY] = [centerX, centerY];
 
-    // Move string to not intersect with arc
-    let [testX, testY] = [centerX, centerY];
+        if (centerX < midX-charWidth/2) testX = midX-charWidth/2;
+        else if (centerX > midX+charWidth/2) testX = midX+charWidth/2;
+        if (centerY < midY-charHeight/2) testY = midY-charHeight/2;
+        else if (centerY > midY+charHeight/2) testY = midY+charHeight/2;
 
-    if (centerX < midX-charWidth/2) testX = midX-charWidth/2;
-    else if (centerX > midX+charWidth/2) testX = midX+charWidth/2;
-    if (centerY < midY-charHeight/2) testY = midY-charHeight/2;
-    else if (centerY > midY+charHeight/2) testY = midY+charHeight/2;
+        let dist = distance(centerX, centerY, testX, testY);
 
-    let dist = distance(centerX, centerY, testX, testY);
-
-    midX += (radius-dist) * Math.cos(midAngle);
-    midY += (radius-dist) * Math.sin(midAngle);
-
+        midX += (radius-dist) * Math.cos(midAngle);
+        midY += (radius-dist) * Math.sin(midAngle);
+    }
     // Draw chars
     ctx.fillText(charString, midX, midY);
-    /*ctx.strokeStyle = "red";
-    ctx.beginPath();
-    ctx.rect(midX-charWidth/2, midY-charHeight/2, charWidth, charHeight);
-    ctx.stroke();*/
+
+    // Draw Blinking Cursor, if Necessary
+    if (vars.selectedArrow == arrow) {
+        let cX = midX + charWidth / 2;
+        let cTop = midY - charHeight/2;
+        let cBottom = midY + charHeight/2;
+        drawBlinkingCursor(ctx, cX, cTop, cBottom);
+    }
 }
 
 // Draw Sandbox Canvas Screen
@@ -345,6 +377,15 @@ function sandboxDraw() {
         }
         // Draw state name
         ctx.fillText(state.name, state.x, state.y);
+
+        // If state is selected, add blinking cursor to name
+        if (vars.selectedState == state) {
+            let charWidth = ctx.measureText(state.name).width;
+            let cX = state.x + charWidth / 2 + 2;
+            let cTop = state.y - charHeight/2;
+            let cBottom = state.y + charHeight/2;
+            drawBlinkingCursor(ctx, cX, cTop, cBottom);
+        }
     });
 
     // Draw Arrows in DFA
@@ -395,7 +436,6 @@ function sandboxDraw() {
         if (toState === undefined) {
             [toX, toY] = forward(toX, toY, angle, vars.STATE_RADIUS);
         }
-        
         drawArrow(ctx, fromX, fromY, toX, toY, toX, toY);
     }
 
@@ -416,13 +456,13 @@ function sandboxDraw() {
         [fromX, fromY] = forward(fromX, fromY, angle, -vars.STATE_RADIUS);
         drawArrow(ctx, fromX, fromY, toX, toY, toX, toY);
     }
+}
 
-    /* Draw Toolbar to Run DFA 
-    toolbarY = 0.8 * sandbox.height;
-    ctx.fillStyle = "rgb(200, 200, 200)";
-    ctx.beginPath();
-    ctx.roundRect(0.45*sandbox.width, toolbarY, 0.1*sandbox.width, 0.1*sandbox.height, [10, 10, 10, 10]);
-    ctx.fill();*/
+// In order for animations such as blinking cursor to occur, need to call
+// Redraw occasionally, even if nothing changes DFA-wise
+function sandboxRefresher() {
+    sandboxDraw();
+    setTimeout(sandboxRefresher, vars.cursorBlinkRate);
 }
 
 /******************************************************************************/
@@ -490,6 +530,7 @@ function sandboxOnMouseDown(event) {
         }
         vars.selectedState = undefined;
         vars.selectedArrow = undefined;
+        vars.selectingStartingArrow = false;
     }
     else if (clickedState !== undefined) {
         // Start Selecting State, Unselect anything Else
@@ -590,6 +631,7 @@ function sandboxOnMouseleave(event) {
 // - Stop Dragging
 // - If was creating an arrow: resolve arrow
 // - If Didn't Click on a State, Create a New State at cursor
+// - (Edge case) if moved starting arrow into its own state, delete it
 function sandboxOnClick(event) {
     vars.dragging = false;
     let clickedState = getClickedState(event.x, event.y);
@@ -625,8 +667,19 @@ function sandboxOnClick(event) {
         // Didn't Click on Anything, Create a New Dtate
         let newState = vars.DFA.createState("", false, event.x, event.y);
         vars.selectedArrow = undefined;
+        vars.selectingStartingArrow = false;
         vars.selectedState = newState;
         resetDFA(); // Add something to DFA, reset output
+    }
+    else if (vars.selectingStartingArrow) {
+        const sarrow = vars.startingArrow;
+        const state = sarrow.toState;
+        if (getClickedState(event.x, event.y) === state) {
+            // Put Starting Arrow into it's starting state, delete it
+            vars.startingArrow = undefined;
+            vars.selectingStartingArrow = false;
+            vars.DFA.setStartingState(undefined);
+        }
     }
     console.log(vars.DFA.toString());
     sandboxDraw();
