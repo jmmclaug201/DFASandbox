@@ -233,6 +233,13 @@ function drawArrowHead(ctx, angle, x, y) {
 // (fromX, fromY) and (toX, toY) are treated as state centers, meaning the
 // drawn arrow actually starts and ends at different points than specified
 function drawArrow(ctx, fromX, fromY, midX, midY, toX, toY) {
+    // Handle Self Loops
+    if (fromX === toX && fromY === toY) {
+        midX = fromX;
+        midY = fromY - 2*vars.STATE_RADIUS;    
+        toX -= 0.01;
+    }
+
     // If colinear, Draw Linear Arrow
     if (isCollinear(fromX, fromY, midX, midY, toX, toY)) {
         // Update xs and ys to not start at state center
@@ -252,7 +259,6 @@ function drawArrow(ctx, fromX, fromY, midX, midY, toX, toY) {
 
     // Find Center Point of Arrow Arc
     const [centerX, centerY] = arcCenter(fromX, fromY, midX, midY, toX, toY);
-
     // Find Radius of Circle
     const r = distance(centerX, centerY, fromX, fromY);
 
@@ -292,10 +298,16 @@ function drawArrowChars(ctx, fromState, arrow, toState, charHeight) {
     }
     const charWidth = ctx.measureText(charString).width;
     
-    // Find Arc Center, Midpoint
-    const [x1, y1] = [fromState.x, fromState.y];
-    const [x2, y2] = [arrow.x, arrow.y];
-    const [x3, y3] = [toState.x, toState.y];
+    let [x1, y1] = [fromState.x, fromState.y];
+    let [x2, y2] = [arrow.x, arrow.y];
+    let [x3, y3] = [toState.x, toState.y];
+
+    // Handle Self Loops
+    if (x1 === x3 && y1 === y3) {
+        x2 = x1;
+        y2 = y1 - 2*vars.STATE_RADIUS;
+        x3 -= 0.01;
+    }
 
     let [midX, midY] = [0,0];
     // Handle Collinear Case
@@ -313,6 +325,7 @@ function drawArrowChars(ctx, fromState, arrow, toState, charHeight) {
         midY += dist * Math.sin(midAngle);      
     }
     else {
+        // Find Arc Center, Midpoint
         const [centerX, centerY] = arcCenter(x1, y1, x2, y2, x3, y3);
         const radius = distance(centerX, centerY, x1, y1);
 
@@ -488,10 +501,16 @@ function getClickedArrow(x, y) {
                 continue;
             }
             const arrow = vars.DFA.arrows.get(fromState).get(toState);
-            const [x1,y1] = [fromState.x, fromState.y];
-            const [x2, y2] = [arrow.x, arrow.y];
-            const [x3,y3] = [toState.x, toState.y];
-            if (pointToArcDistance(x, y, x1, y1, x2, y2, x3, y3) <= 20) { // NO MAGIC NUMBERS
+            let [x1,y1] = [fromState.x, fromState.y];
+            let [x2, y2] = [arrow.x, arrow.y];
+            let [x3,y3] = [toState.x, toState.y];
+            // Handle self loops
+            if (x1 === x3 && y1 === y3) {
+                x2 = x1;
+                y2 = y1 - 2*vars.STATE_RADIUS;
+                x3 -= 0.01;
+            }
+            if (pointToArcDistance(x, y, x1, y1, x2, y2, x3, y3) <= 20) { // 20 is a good threshold for clicking
                 return vars.DFA.arrows.get(fromState).get(toState);
             }
         }
@@ -503,8 +522,8 @@ function clickedStartingArrow(x, y) {
     const arrow = vars.startingArrow;
     if (arrow === undefined) return false;
     const [x1, y1] = [arrow.fromX, arrow.fromY];
-    const [x2, y2] = [arrow.toState.x, arrow.toState.y]; // Technically incorrect, but ok since will always be checked after clickedState
-    return pointToLineDistance(x, y, x1, y1, x2, y2) <= 20; // NO MAGIC NUMBERS
+    const [x2, y2] = [arrow.toState.x, arrow.toState.y]; // Technically incorrect as arrow stops before state center, but ok since will always be checked after clickedState
+    return pointToLineDistance(x, y, x1, y1, x2, y2) <= 20; // 20 is a good threshold for clicking
 }
 
 // Defines what Sandbox Should do on MouseClick:

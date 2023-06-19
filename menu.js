@@ -79,7 +79,8 @@ function updateInput() {
     else {
         highlight = vars.REJECT_COLOR;
     }
-    dfaInput.innerHTML = `<span style=background-color:${highlight}>${seen}</span>${unseen}`;
+    let newHTML = `<span style="background-color:${highlight}">${seen}</span>${unseen}`;
+    dfaInput.innerHTML = newHTML;
     console.log("InnerText:" + dfaInput.innerHTML);
 }
 
