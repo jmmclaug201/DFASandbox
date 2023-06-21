@@ -678,7 +678,6 @@ function sandboxOnClick(event) {
                 };
                 vars.selectingStartingArrow = true;
             }
-            resetDFA(); // Added Something to DFA, reset output
         }
         vars.floatingArrow = undefined;
     }
@@ -688,7 +687,6 @@ function sandboxOnClick(event) {
         vars.selectedArrow = undefined;
         vars.selectingStartingArrow = false;
         vars.selectedState = newState;
-        resetDFA(); // Add something to DFA, reset output
     }
     else if (vars.selectingStartingArrow) {
         const sarrow = vars.startingArrow;
@@ -710,7 +708,6 @@ function sandboxOnDblClick(event) {
     let state = getClickedState(event.x, event.y);
     if (state !== undefined) {
         vars.DFA.toggleStateAccepting(state);
-        resetDFA(); // Add something to DFA, reset output
         sandboxDraw();
     }
 }
@@ -743,7 +740,6 @@ function sandboxOnKeyDown(event) {
                 }
                 vars.selectedState = undefined;
                 vars.DFA.deleteState(state);
-                resetDFA(); // Changed DFA, reset output
             }
             else {
                 vars.selectedState.name = vars.selectedState.name.slice(0, -1);
@@ -759,14 +755,15 @@ function sandboxOnKeyDown(event) {
             if (arrow.chars.length === 0) {
                 vars.selectedArrow = undefined;
                 vars.DFA.deleteTransition(arrow);
-                resetDFA(); // Changed DFA, reset output
             }
             else{
                 arrow.chars.pop();
+                resetDFA(); // Update Arrow Chars, Reset DFA
             }
         }
         else if (isDFAChar(event.key) && !(arrow.chars.includes(event.key))){
             arrow.chars.push(event.key);
+            resetDFA(); // Update Arrow Chars, Reset DFA
         }
     }
     else if (vars.selectingStartingArrow) {
@@ -774,7 +771,6 @@ function sandboxOnKeyDown(event) {
             vars.selectingStartingArrow = false;
             vars.startingArrow = undefined;
             vars.DFA.setStartingState(undefined);
-            resetDFA(); // Changed DFA, reset output
         }
     }
     sandboxDraw();

@@ -13,54 +13,79 @@ function initMenu() {
         element.addEventListener("mouseover", onHover);
         element.addEventListener("mouseleave", onLeave);
     });
+    updateButtonBackgrounds();
+
     document.getElementById("restart").addEventListener("click", restartClick);
     document.getElementById("back").addEventListener("click", backClick);
     document.getElementById("forward").addEventListener("click", forwardClick);
     document.getElementById("run").addEventListener("click", runClick);
 
-    document.getElementById("dfaInput").addEventListener("keyup", onInputChange);
-    document.getElementById("dfaInput").addEventListener("click", onInputChange);
+    document.getElementById("dfaInput").addEventListener("keyup", onInputKeyChange);
+    document.getElementById("dfaInput").addEventListener("mousedown", onInputMouseDownChange);
+}
+
+// Since The user will sometimes click on the image inside a buttion,
+// instead of the button itself, getbutton gets the actual button element
+function getButton(target) {
+    if (!menuVars.buttons.includes(target)) return target.parentElement;
+    return target;
 }
 
 function onHover(event) {
-    let target = event.target;
-    if (!menuVars.buttons.includes(event.target)) target = target.parentElement;
-    target.style.background = menuVars.HOVER_COLOR;
+    let target = getButton(event.target);
+    if (canClick(target)) {
+        target.style.background = menuVars.HOVER_COLOR;
+    }
 }
 
 function onLeave(event) {
-    event.target.style.background = menuVars.SELECTABLE_COLOR;
+    updateButtonBackgrounds();
 }
 
-function canClick() {
-    return (vars.DFAResults !== undefined) && (vars.DFA.isValid());
+function canClick(button) {
+    if (vars.DFAResults === undefined) return false;
+    if ((button.id === "restart" || button.id === "back")
+         && vars.DFAIndex <= -1) return false;
+    if ((button.id === "run" || button.id === "forward")
+        && vars.DFAIndex >= vars.DFAResults.states.length-2) {
+        return false;
+    }
+    return true;
 }
 
 function restartClick(event) {
-    if (!canClick()) return;
+    let target = getButton(event.target);
+    if (!canClick(target)) return;
     vars.DFAIndex = -1;
     updateInput();
+    updateButtonBackgrounds();
     sandboxDraw();
 }
 
 function backClick(event) {
-    if (!canClick() || vars.DFAIndex <= -1) return;
+    let target = getButton(event.target);
+    if (!canClick(target)) return;
     vars.DFAIndex -= 1;
     updateInput();
+    updateButtonBackgrounds();
     sandboxDraw();
 }
 
 function forwardClick(event) {
-    if (!canClick() || vars.DFAIndex >= vars.DFAResults.states.length-2) return;
+    let target = getButton(event.target);
+    if (!canClick(target)) return;
     vars.DFAIndex += 1;
     updateInput();
+    updateButtonBackgrounds();
     sandboxDraw();
 }
 
 function runClick(event) {
-    if (!canClick()) return;
+    let target = getButton(event.target);
+    if (!canClick(target)) return;
     vars.DFAIndex = vars.DFAResults.states.length-2;
     updateInput();
+    updateButtonBackgrounds();
     sandboxDraw();
 }
 
@@ -81,17 +106,44 @@ function updateInput() {
     }
     let newHTML = `<span style="background-color:${highlight}">${seen}</span>${unseen}`;
     dfaInput.innerHTML = newHTML;
-    console.log("InnerText:" + dfaInput.innerHTML);
+}
+
+function updateButtonBackgrounds() {
+    menuVars.buttons.forEach(element => {
+        if (!canClick(element)) {
+            element.style.background = menuVars.INVALID_COLOR;
+        }
+        else {
+            element.style.background = menuVars.SELECTABLE_COLOR;
+        }
+    });
 }
 
 function resetDFA() {
     const input = document.getElementById("dfaInput").textContent;
     vars.DFAIndex = -2;
     vars.DFAResults = vars.DFA.evaluate(input);
-    console.log('"' + input + '"', vars.DFAResults);
+    updateButtonBackgrounds();
 }
 
-function onInputChange(event) {
+function onInputKeyChange(event) {
     resetDFA();
     sandboxDraw();
 }
+
+function onInputMouseDownChange(event) {
+    resetDFA();
+    const focusNode = window.getSelection().focusNode
+    if (focusNode == null || focusNode.nodeType !== 3) {
+        console.log("prevented?")
+        event.preventDefault();
+        updateInput();
+        window.getSelection().removeAllRanges();
+        const range = document.createRange();
+        range.setStart(event.target.childNodes[1], 0);//Fix This
+        range.setEnd(event.target.childNodes[1], event.target.childNodes[1].length);
+        window.getSelection().addRange(range);
+    }
+    sandboxDraw();
+}
+

@@ -48,15 +48,32 @@ class DFA {
     // Return Whether the DFA is valid, i.e:
     //  - Has a Starting State
     //  - No Empty Transitions
-    //  - No two transitions with same character from same state (IMPLEMENT!)
+    //  - No two transitions with same character from same state
     isValid() {
+        // Has a Starting State
         if (this.startingState === undefined) return false;
         for (const fromState of this.states) {
+            const seenChars = [];
             for (const toState of this.states) {
-                if (this.arrows.get(fromState).has(toState)
-                 && this.arrows.get(fromState).get(toState).chars.length === 0) {
+                const arrow = this.arrows.get(fromState).get(toState);
+                if (!arrow) {
+                    continue;
+                }
+                // No Empty Transitions
+                if (arrow.chars.length === 0) {
                     return false;
-                 }
+                }
+                else{
+                    // No two transitions with same character from same state
+                    let repeatedChar = false;
+                    arrow.chars.forEach((char) => {
+                        if (seenChars.includes(char)) {
+                            repeatedChar = true;
+                        }
+                        seenChars.push(char);
+                    });
+                    if (repeatedChar) return false;
+                }
             }
         }
         return true;
@@ -69,6 +86,7 @@ class DFA {
         this.arrows.set(state, new WeakMap());
         this.nextId += 1;
 
+        resetDFA();
         return state;
     }
 
@@ -80,11 +98,13 @@ class DFA {
         else {
             this.startingState = undefined;
         }
+        resetDFA();
     }
 
     // Turns Accepting State into Rejecting State, and vice versa
     toggleStateAccepting(state) {
         state.accepting = !state.accepting;
+        resetDFA();
         return state.accepting;
     }
 
@@ -98,6 +118,7 @@ class DFA {
         if (this.startingState === state) {
             this.startingState = undefined;
         }
+        resetDFA();
     }
 
     // Creates Transition from fromState to toState with no characters
@@ -109,6 +130,7 @@ class DFA {
             this.arrows.get(fromState).set(toState, 
                             new Arrow(fromState, toState, [], x, y));
         }
+        resetDFA();
     }
 
     // Gets Arrow from fromState to toState, if it exists
@@ -125,6 +147,7 @@ class DFA {
             return;
         }
         this.arrows.get(fromState).get(toState).chars = characters;
+        resetDFA();
         return;
     }
 
@@ -135,6 +158,7 @@ class DFA {
             return;
         }
         this.arrows.get(fromState).delete(toState);
+        resetDFA();
     }
 
     // Given current state and next input character,
