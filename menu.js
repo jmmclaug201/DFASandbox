@@ -4,6 +4,8 @@ const menuVars = {
     SELECTABLE_COLOR: "rgb(200,200,200)",
     HOVER_COLOR: "rgb(150, 150, 150)",
     INVALID_COLOR: "rgb(100, 100, 100)",
+
+    selected: undefined
 }
 
 function initMenu() {
@@ -22,6 +24,8 @@ function initMenu() {
 
     document.getElementById("dfaInput").addEventListener("keyup", onInputKeyChange);
     document.getElementById("dfaInput").addEventListener("mousedown", onInputMouseDownChange);
+
+    document.addEventListener("click", setSelected);
 }
 
 // Since The user will sometimes click on the image inside a buttion,
@@ -89,7 +93,6 @@ function runClick(event) {
     sandboxDraw();
 }
 
-// see if you can maintain cursor position
 function updateInput() {
     let dfaInput = document.getElementById("dfaInput");
     let inputText = dfaInput.innerHTML.replaceAll(/<.+?>/g, "");
@@ -131,18 +134,27 @@ function onInputKeyChange(event) {
     sandboxDraw();
 }
 
+function setSelected(event) {
+    menuVars.selected = event.target;
+    if (event.target == undefined || event.target.id != "dfaInput") {
+        window.getSelection().removeAllRanges();
+    }
+}
+
 function onInputMouseDownChange(event) {
     resetDFA();
-    const focusNode = window.getSelection().focusNode
-    if (focusNode == null || focusNode.nodeType !== 3) {
-        console.log("prevented?")
-        event.preventDefault();
+    // If Wasn't already selecting input bar, reset it
+    console.log(event.target.childNodes)
+    if (menuVars.selected == undefined || menuVars.selected.id != "dfaInput") {
         updateInput();
         window.getSelection().removeAllRanges();
-        const range = document.createRange();
-        range.setStart(event.target.childNodes[1], 0);//Fix This
-        range.setEnd(event.target.childNodes[1], event.target.childNodes[1].length);
-        window.getSelection().addRange(range);
+        if (event.target.childNodes.length > 1) {
+            event.preventDefault();
+            const range = document.createRange();
+            range.setStart(event.target.childNodes[1], 0);//Fix This
+            range.setEnd(event.target.childNodes[1], event.target.childNodes[1].length);
+            window.getSelection().addRange(range);
+        }
     }
     sandboxDraw();
 }
